@@ -103,6 +103,13 @@ class TestAgainstKnownSeries:
         assert all(15.0 < v < 30.0 for v in result.hrv.sdnn_per_window_ms)
 
 
+class TestScreeningIntegration:
+    def test_clean_fixture_raises_no_flags(self, result: PipelineResult) -> None:
+        from app.screening.rules import run_screening
+
+        assert run_screening(result, athlete_baseline=False) == []
+
+
 class TestEngineFallback:
     """The fallback chain is honest: engine_used reports what actually ran."""
 
