@@ -20,14 +20,31 @@
   </div>
 
   <p class="eyebrow">Sessions</p>
+  <p><a class="button" href="{{ url_for('sessions.upload') }}">Upload a recording</a></p>
   {% if person.sessions %}
-    <ul>
-      {% for session in person.sessions %}
-        <li>Session {{ session.id }} — {{ session.processing_status }}</li>
-      {% endfor %}
-    </ul>
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Activity</th><th>Recorded</th><th>Status</th><th>Excluded</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for session in person.sessions | sort(attribute="id", reverse=true) %}
+          <tr>
+            <td class="num"><a href="{{ url_for('sessions.detail', session_id=session.id) }}">{{ session.id }}</a></td>
+            <td>{{ session.activity_type.name if session.activity_type else "—" }}</td>
+            <td class="num">{{ session.recorded_at.strftime("%Y-%m-%d %H:%M") if session.recorded_at else "—" }}</td>
+            <td class="mono">{{ session.processing_status }}
+              {% if session.reduced_confidence %}<span class="badge badge-warn">reduced confidence</span>{% endif %}
+            </td>
+            <td class="num">{{ "%.0f s"|format(session.excluded_s) if session.excluded_s is not none else "—" }}</td>
+            <td>{% if session.processing_status == "done" %}
+              <a href="{{ url_for('sessions.report', session_id=session.id) }}">report</a>
+            {% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   {% else %}
-    <div class="empty-state">No sessions yet. Uploads arrive in a later phase.</div>
+    <div class="empty-state">No sessions yet.</div>
   {% endif %}
 
   <p class="eyebrow">Danger zone</p>

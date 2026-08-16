@@ -269,6 +269,7 @@ def _parse_header(
                     ),
                     observed=f"Found columns: {', '.join(raw_names)}",
                     options=CANONICAL_COLUMNS,
+                    observed_values=tuple(raw_names),
                 )
             ],
         )

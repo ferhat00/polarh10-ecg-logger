@@ -134,6 +134,9 @@ class Session(db.Model):
         String(20), default=ProcessingStatus.PENDING
     )
     error_message: Mapped[str | None] = mapped_column(String(2000), default=None)
+    #: User answers from the format-mapping form (loader FormatOverrides),
+    #: kept so reprocessing applies them again.
+    format_overrides: Mapped[dict | None] = mapped_column(JSON, default=None)
     #: Which engine actually produced the analysis ("neurokit2" / "biosppy").
     engine_used: Mapped[str | None] = mapped_column(String(40), default=None)
 

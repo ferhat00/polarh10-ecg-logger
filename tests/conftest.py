@@ -14,8 +14,10 @@ from app.extensions import db
 
 
 @pytest.fixture()
-def app() -> Iterator[Flask]:
-    app = create_app(TestConfig())
+def app(tmp_path) -> Iterator[Flask]:
+    config = TestConfig()
+    config.DATA_DIR = tmp_path / "data"
+    app = create_app(config)
     with app.app_context():
         db.create_all()
         yield app

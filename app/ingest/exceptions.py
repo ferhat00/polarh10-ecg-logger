@@ -39,6 +39,9 @@ class FormatQuestion:
     question: str
     observed: str
     options: tuple[str, ...] = field(default=())
+    #: Structured values behind ``observed`` (e.g. the raw column names for a
+    #: ``columns`` question) so the mapping form can build per-item inputs.
+    observed_values: tuple[str, ...] = field(default=())
 
 
 class AmbiguousFormatError(LoaderError):
@@ -62,6 +65,7 @@ class AmbiguousFormatError(LoaderError):
                     "question": q.question,
                     "observed": q.observed,
                     "options": list(q.options),
+                    "observed_values": list(q.observed_values),
                 }
                 for q in self.questions
             ],

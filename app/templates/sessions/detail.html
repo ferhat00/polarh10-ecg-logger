@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Session {{ session.id }} — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Session</p>
+  <h1>
+    Session {{ session.id }} — {{ session.person.name }}
+    {% if session.reduced_confidence %}<span class="badge badge-warn">reduced confidence</span>{% endif %}
+  </h1>
+  <p class="mono" style="font-size:0.85rem">
+    {{ session.activity_type.name if session.activity_type else "no activity" }}
+    {% if session.recorded_at %} · recorded {{ session.recorded_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}
+    · {{ session.original_filename }}
+  </p>
+  {% if session.context_note %}<p><em>“{{ session.context_note }}”</em></p>{% endif %}
+
+  {% if session.processing_status in ("pending", "running") %}
+    <div class="card" id="processing-card"
+         data-status-url="{{ url_for('sessions.status', session_id=session.id) }}">
+      <p><span class="mono">{{ session.processing_status | upper }}</span> — analysing the
+      recording. This page refreshes itself when the analysis finishes.</p>
+    </div>
+    <script src="{{ url_for('static', filename='js/status_poll.js') }}"></script>
+
+  {% elif session.processing_status == "needs_mapping" %}
+    <div class="card">
+      <p><strong>The file doesn't match the expected format</strong> — rather than guess
+      (a wrong unit or epoch corrupts everything downstream), the loader needs answers:</p>
+      <ul class="notes">
+        {% for q in questions %}
+          <li>{{ q.question }} <span class="mono" style="font-size:0.75rem">({{ q.observed }})</span></li>
+        {% endfor %}
+      </ul>
+      <a class="button" href="{{ url_for('sessions.mapping', session_id=session.id) }}">Answer the format questions</a>
+    </div>
+
+  {% elif session.processing_status == "error" %}
+    <div class="card">
+      <p><strong style="color:var(--warn)">Processing failed:</strong>
+      <span class="mono" style="font-size:0.85rem">{{ session.error_message }}</span></p>
+      <form method="post" action="{{ url_for('sessions.reprocess', session_id=session.id) }}">
+        <button type="submit" class="button-quiet">Try again</button>
+      </form>
+    </div>
+
+  {% else %}{# done #}
+    {% if extras.get("not_analysable") %}
+      <div class="card" style="border-color:var(--warn)">
+        <strong style="color:var(--warn)">{{ extras.get("not_analysable_reason") }}</strong>
+      </div>
+    {% endif %}
+
+    <p class="eyebrow">At a glance</p>
+    <div class="card">
+      <table>
+        <tbody>
+          <tr><th>Excluded time</th>
+              <td class="num"><strong>{{ "%.0f s"|format(session.excluded_s or 0) }}</strong>
+              of {{ "%.0f s"|format((session.excluded_s or 0) + (session.analysed_s or 0)) }}
+              — {{ "%.0f s"|format(session.analysed_s or 0) }} analysed</td></tr>
+          {% if session.metrics %}
+          <tr><th>Beats</th><td class="num">{{ session.metrics.n_beats }}</td></tr>
+          <tr><th>Mean HR</th><td class="num">{{ session.metrics.mean_hr_bpm | round(0) if session.metrics.mean_hr_bpm else "—" }} bpm</td></tr>
+          <tr><th>RMSSD</th><td class="num">{{ session.metrics.rmssd_ms | round(1) if session.metrics.rmssd_ms is not none else "—" }} ms</td></tr>
+          <tr><th>SDNN (whole record)</th><td class="num">{{ session.metrics.sdnn_ms | round(1) if session.metrics.sdnn_ms is not none else "—" }} ms <span class="hint">trend-inclusive</span></td></tr>
+          {% endif %}
+          <tr><th>Beats corrected</th><td class="num">{{ "%.2f%%"|format(session.beats_corrected_pct or 0) }}</td></tr>
+          <tr><th>Engine</th><td class="num">{{ session.engine_used }}</td></tr>
+          <tr><th>Unit / epoch detected</th><td class="num">{{ session.ecg_unit_detected }} / {{ session.epoch_detected }}</td></tr>
+          <tr><th>Sampling rate</th><td class="num">{{ "%.3f"|format(session.sampling_rate_hz) if session.sampling_rate_hz }} Hz</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% if has_report %}
+      <p>
+        <a class="button" href="{{ url_for('sessions.report', session_id=session.id) }}">Open report</a>
+        <a class="button button-quiet" href="{{ url_for('sessions.report_download', session_id=session.id) }}">Download report</a>
+      </p>
+    {% endif %}
+
+    {% for s in extras.get("suppressions", []) %}
+      <div class="flash flash-error" style="font-family:inherit">Suppressed — {{ s.reason }}</div>
+    {% endfor %}
+    {% for c in extras.get("cautions", []) %}
+      <div class="flash" style="border:1px solid var(--warn); color:inherit">⚠ {{ c.reason }}</div>
+    {% endfor %}
+
+    <p class="eyebrow">Screening</p>
+    {% if session.flags %}
+      {% for flag in session.flags %}
+        <div class="card" style="border:1.5px solid var(--warn)">
+          <h3 style="color:var(--warn); margin-top:0">{{ flag.kind.replace("_", " ") }}
+            <span class="badge badge-warn">{{ flag.severity }}</span></h3>
+          <p>{{ flag.description }}</p>
+          <p style="border-left:3px solid var(--warn); padding:0.4rem 0.8rem; font-size:0.82rem; background:#FBF1ED">
+            {{ flag.disclaimer }}</p>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="card">No rule-based screening threshold was crossed. That is not
+      clinical clearance: screening rules on single-lead data have limited sensitivity,
+      and this tool cannot rule anything in or out.</div>
+    {% endif %}
+
+    {% if session.excluded_segments %}
+      <p class="eyebrow">Excluded segments</p>
+      <div class="card">
+        <table>
+          <thead><tr><th>From</th><th>To</th><th>Reason</th></tr></thead>
+          <tbody>
+            {% for seg in session.excluded_segments %}
+              <tr><td class="num">{{ "%.0f s"|format(seg.start_s) }}</td>
+                  <td class="num">{{ "%.0f s"|format(seg.end_s) }}</td>
+                  <td>{{ seg.reason }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  {% endif %}
+{% endblock %}

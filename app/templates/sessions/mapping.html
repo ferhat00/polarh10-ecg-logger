@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Format questions — session {{ session.id }}{% endblock %}
+{% block content %}
+  <p class="eyebrow">Format mapping</p>
+  <h1>This file needs your answers</h1>
+  <p>
+    The file doesn't match the verified Polar export shape, and a wrong guess about
+    units or timestamps would corrupt every number downstream — so nothing is guessed.
+  </p>
+
+  <form class="stack" method="post">
+    {% for q in questions %}
+      <div class="card">
+        <p><strong>{{ q.question }}</strong></p>
+        <p class="hint mono" style="font-size:0.75rem">{{ q.observed }}</p>
+
+        {% if q.key == "columns" and q.observed_values %}
+          {% for col in q.observed_values %}
+            <label class="inline">
+              <span class="mono">{{ col }}</span> →
+              <select name="col__{{ col }}">
+                <option value="ignore">ignore</option>
+                {% for canon in canonical_columns %}
+                  <option value="{{ canon }}" {{ "selected" if col.lower() == canon }}>{{ canon }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endfor %}
+        {% elif q.key == "delimiter" %}
+          <label class="inline">Delimiter
+            <select name="delimiter">
+              <option value="">—</option>
+              <option value=",">comma ( , )</option>
+              <option value=";">semicolon ( ; )</option>
+              <option value="tab">tab</option>
+            </select>
+          </label>
+        {% elif q.key == "decimal" %}
+          <label class="inline">Decimal separator
+            <select name="decimal">
+              <option value="">—</option>
+              <option value=".">point ( . )</option>
+              <option value=",">comma ( , )</option>
+            </select>
+          </label>
+        {% elif q.key == "ecg_unit" %}
+          <label class="inline">ECG unit
+            <select name="ecg_unit">
+              <option value="">—</option>
+              <option value="mV">millivolts (mV)</option>
+              <option value="uV">microvolts (µV)</option>
+            </select>
+          </label>
+        {% elif q.key == "epoch" %}
+          <label class="inline">Timestamp epoch
+            <select name="epoch">
+              <option value="">—</option>
+              <option value="unix">Unix (1970-01-01)</option>
+              <option value="polar2000">Polar sensor (2000-01-01)</option>
+            </select>
+          </label>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <div>
+      <button type="submit">Save answers &amp; re-analyse</button>
+      <a class="button button-quiet" href="{{ url_for('sessions.detail', session_id=session.id) }}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Upload session — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Sessions</p>
+  <h1>Upload a recording</h1>
+  <p>
+    Raw ECG CSV from Polar Sensor Logger (H10). The activity you choose decides how
+    the session is analysed — pick what you were actually doing.
+  </p>
+
+  {% if not people %}
+    <div class="empty-state">
+      <p>Sessions belong to a person. Add one first.</p>
+      <a class="button" href="{{ url_for('people.create') }}">Add person</a>
+    </div>
+  {% else %}
+  <form class="stack" method="post" enctype="multipart/form-data">
+    <label>
+      Person
+      <select name="person_id" required>
+        <option value="" disabled {{ "selected" if not form.get('person_id') }}>choose…</option>
+        {% for p in people %}
+          <option value="{{ p.id }}" {{ "selected" if form.get('person_id') == p.id|string }}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Activity
+      <select name="activity_type_id" required>
+        <option value="" disabled {{ "selected" if not form.get('activity_type_id') }}>choose…</option>
+        {% for a in activities %}
+          <option value="{{ a.id }}" {{ "selected" if form.get('activity_type_id') == a.id|string }}>{{ a.name }}</option>
+        {% endfor %}
+      </select>
+      <span class="hint">missing one? <a href="{{ url_for('activities.create') }}">add an activity</a></span>
+    </label>
+    <label>
+      Context note <span class="hint">optional — “after coffee”, “poor sleep”, “browsing library and shop”… context often explains an outlier</span>
+      <textarea name="context_note" rows="2">{{ form.get('context_note', '') }}</textarea>
+    </label>
+    <label>
+      ECG CSV file
+      <input type="file" name="file" accept=".csv,text/csv" required>
+    </label>
+    <div>
+      <button type="submit">Upload &amp; analyse</button>
+    </div>
+  </form>
+  {% endif %}
+{% endblock %}
