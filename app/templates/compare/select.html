@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Compare — {{ person.name }}{% endblock %}
+{% block content %}
+  <p class="eyebrow">Comparison</p>
+  <h1>{{ person.name }} — pick sessions</h1>
+  <p>
+    Sessions are grouped by activity. Comparing within one group is the default;
+    mixing groups needs the explicit override below because posture and motion
+    dominate HRV far more than fitness does.
+  </p>
+
+  {% if not groups and not ungrouped %}
+    <div class="empty-state">No completed sessions yet.</div>
+  {% else %}
+  <form method="get" action="{{ url_for('compare.view', person_id=person.id) }}">
+    {% for key, sessions in groups.items() %}
+      <p class="eyebrow">{{ key }}
+        {% if sessions | length >= 2 %}
+          · <a href="{{ url_for('compare.trends', person_id=person.id, comparison_key=key) }}">longitudinal trend</a>
+        {% endif %}
+      </p>
+      <div class="card">
+        {% for s in sessions %}
+          <label class="inline">
+            <input type="checkbox" name="sessions" value="{{ s.id }}">
+            <span class="mono">#{{ s.id }}</span>
+            {{ s.recorded_at.strftime("%Y-%m-%d %H:%M") if s.recorded_at else "undated" }}
+            · {{ s.activity_type.name }}
+            · {{ "%.0f min"|format((s.analysed_s or 0) / 60) }}
+            {% if s.reduced_confidence %}<span class="badge badge-warn">reduced confidence</span>{% endif %}
+            {% if s.context_note %}<span class="hint">“{{ s.context_note }}”</span>{% endif %}
+          </label><br>
+        {% endfor %}
+      </div>
+    {% endfor %}
+
+    <div class="card">
+      <label class="inline">
+        <input type="checkbox" name="mixed">
+        Allow cross-activity comparison
+        <span class="hint">adds a prominent warning — posture and motion dominate HRV; a supine RMSSD and a standing RMSSD are not the same measurement</span>
+      </label>
+    </div>
+    <button type="submit">Compare selected</button>
+  </form>
+  {% endif %}
+{% endblock %}
