@@ -10,11 +10,19 @@
   </p>
 
   {% if people %}
+    <p>
+      <a class="button" href="{{ url_for('sessions.upload') }}">Upload a recording</a>
+      <a class="button button-quiet" href="{{ url_for('compare.index') }}">Compare sessions</a>
+    </p>
     <p class="eyebrow">People</p>
     <div class="card">
       <ul>
         {% for person in people %}
-          <li><a href="{{ url_for('people.detail', person_id=person.id) }}">{{ person.name }}</a></li>
+          <li>
+            <a href="{{ url_for('people.detail', person_id=person.id) }}">{{ person.name }}</a>
+            <span class="hint">{{ person.sessions | length }} session(s)</span>
+            · <a href="{{ url_for('logbook.timeline', person_id=person.id) }}">log</a>
+          </li>
         {% endfor %}
       </ul>
     </div>

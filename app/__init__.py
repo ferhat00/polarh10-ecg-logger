@@ -41,6 +41,16 @@ def create_app(config_object: object | None = None) -> Flask:
     app.register_blueprint(compare_bp)
     app.register_blueprint(logbook_bp)
 
+    from flask import render_template
+
+    @app.errorhandler(404)
+    def not_found(_error: object):
+        return render_template("errors/404.html"), 404
+
+    @app.errorhandler(500)
+    def server_error(_error: object):
+        return render_template("errors/500.html"), 500
+
     return app
 
 

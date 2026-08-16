@@ -194,3 +194,33 @@ label.inline { display: flex; align-items: center; gap: 0.5rem; }
 }
 .badge-warn { color: var(--warn); }
 .badge-ok { color: var(--accent); }
+
+.log-entry h3 {
+  margin: 0 0 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+.log-entry ul { margin: 0.2rem 0 0.2rem 1.1rem; padding: 0; font-size: 0.88rem; }
+.log-entry li { margin: 0.15rem 0; }
+
+/* Tables never break the page — they scroll inside their card. */
+.card { overflow-x: auto; }
+
+/* Mobile */
+@media (max-width: 640px) {
+  body { font-size: 15px; }
+  main { padding: 0.75rem 0.75rem 3rem; }
+  .masthead {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    padding: 0.75rem;
+  }
+  .masthead nav { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  .masthead nav a { margin-left: 0; }
+  .tool-note { padding: 0.3rem 0.75rem; }
+  form.stack { max-width: 100%; }
+  th, td { padding: 0.3rem 0.45rem; }
+  .button, button { width: 100%; text-align: center; margin-bottom: 0.4rem; }
+}
