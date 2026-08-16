@@ -1,0 +1,179 @@
+/* ECG-paper visual language. All assets local; the app works fully offline.
+   Palette per spec: warm off-white ground, salmon 1mm/5mm grid, near-black ink,
+   muted green accent, brick red for warnings. */
+
+:root {
+  --paper: #FFFCFA;
+  --grid-small: #F6CFC4;
+  --grid-large: #E89A85;
+  --ink: #1B1E28;
+  --accent: #2E5E4E;
+  --warn: #B4472E;
+  /* IBM Plex is vendored in the report phase; system stacks until then. */
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  /* The page background IS the ECG grid: 1 mm / 5 mm squares. */
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid-large) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-large) 1px, transparent 1px),
+    linear-gradient(var(--grid-small) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-small) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 4rem;
+}
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.25rem;
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+}
+
+.brand {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.brand-pulse { color: var(--warn); }
+
+.masthead nav a {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.85rem;
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: 1rem;
+}
+.masthead nav a:hover { text-decoration: underline; }
+
+.tool-note {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+  background: var(--paper);
+  border-bottom: 1px solid var(--grid-large);
+  padding: 0.3rem 1.25rem;
+}
+
+h1, h2, h3 { line-height: 1.2; }
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 2rem 0 0.25rem;
+}
+
+.card {
+  background: var(--paper);
+  border: 1px solid var(--grid-large);
+  border-radius: 4px;
+  padding: 1rem 1.25rem;
+  margin: 1rem 0;
+}
+
+table { border-collapse: collapse; width: 100%; background: var(--paper); }
+th, td { text-align: left; padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--grid-small); }
+th {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+td.num, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+a { color: var(--accent); }
+
+.button, button {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: var(--accent);
+  border: none;
+  border-radius: 3px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+.button:hover, button:hover { filter: brightness(1.1); }
+.button-danger { background: var(--warn); }
+.button-quiet { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+
+form.stack { display: grid; gap: 0.9rem; max-width: 28rem; }
+label { display: grid; gap: 0.25rem; font-size: 0.9rem; }
+label .hint { font-size: 0.78rem; color: #666; }
+input[type="text"], input[type="date"], input[type="number"], textarea, select {
+  font: inherit;
+  font-family: var(--font-mono);
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--grid-large);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+}
+label.inline { display: flex; align-items: center; gap: 0.5rem; }
+
+.flashes { max-width: 960px; margin: 0.75rem auto 0; padding: 0 1.25rem; }
+.flash {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: 3px;
+  margin-bottom: 0.4rem;
+  background: var(--paper);
+}
+.flash-ok { border: 1px solid var(--accent); color: var(--accent); }
+.flash-error { border: 1px solid var(--warn); color: var(--warn); }
+
+.empty-state {
+  border: 1px dashed var(--grid-large);
+  background: var(--paper);
+  border-radius: 4px;
+  padding: 2rem;
+  text-align: center;
+  color: #555;
+}
+
+.badge {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 3px;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid currentColor;
+}
+.badge-warn { color: var(--warn); }
+.badge-ok { color: var(--accent); }

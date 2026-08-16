@@ -1,0 +1,19 @@
+# Web framework
+flask>=3.0,<4
+flask-sqlalchemy>=3.1,<4
+flask-migrate>=4.0,<5
+sqlalchemy>=2.0,<3
+
+# Scientific stack (signal processing pipeline)
+numpy>=1.26,<3
+scipy>=1.11
+pandas>=2.1
+matplotlib>=3.8
+
+# ECG engines: neurokit2 primary, biosppy fallback
+neurokit2>=0.2.7
+biosppy>=2.2.2
+
+# Dev / quality
+pytest>=8
+ruff>=0.5

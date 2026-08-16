@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ "New person" if mode == "new" else "Edit " ~ person.name }} — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Profiles</p>
+  <h1>{{ "New person" if mode == "new" else "Edit " ~ person.name }}</h1>
+
+  <form class="stack" method="post">
+    <label>
+      Name
+      <input type="text" name="name" value="{{ person.name }}" required>
+    </label>
+    <label>
+      Date of birth <span class="hint">optional — used only as a fallback for estimating max HR</span>
+      <input type="date" name="date_of_birth" value="{{ person.date_of_birth or '' }}">
+    </label>
+    <label>
+      Max HR (bpm) <span class="hint">optional — a measured value beats the 220−age estimate</span>
+      <input type="number" name="max_hr_bpm" min="100" max="250" value="{{ person.max_hr_bpm or '' }}">
+    </label>
+    <label>
+      Resting HR (bpm) <span class="hint">optional — used for heart-rate-reserve calculations</span>
+      <input type="number" name="resting_hr_bpm" min="25" max="120" value="{{ person.resting_hr_bpm or '' }}">
+    </label>
+    <label class="inline">
+      <input type="checkbox" name="athlete_baseline" {{ "checked" if person.athlete_baseline }}>
+      Athlete baseline
+      <span class="hint">adjusts the low-heart-rate screening threshold; endurance training commonly lowers resting HR</span>
+    </label>
+    <div>
+      <button type="submit">{{ "Create" if mode == "new" else "Save" }}</button>
+      <a class="button button-quiet" href="{{ url_for('people.list_people') }}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

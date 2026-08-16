@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}People — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Profiles</p>
+  <h1>People</h1>
+  <p><a class="button" href="{{ url_for('people.create') }}">Add person</a></p>
+
+  {% if people %}
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Date of birth</th><th>Athlete baseline</th><th>Sessions</th></tr>
+      </thead>
+      <tbody>
+        {% for person in people %}
+          <tr>
+            <td><a href="{{ url_for('people.detail', person_id=person.id) }}">{{ person.name }}</a></td>
+            <td class="num">{{ person.date_of_birth or "—" }}</td>
+            <td>{{ "Yes" if person.athlete_baseline else "No" }}</td>
+            <td class="num">{{ person.sessions | length }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty-state">No people yet.</div>
+  {% endif %}
+{% endblock %}

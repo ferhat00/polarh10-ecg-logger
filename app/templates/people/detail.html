@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ person.name }} — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Profile</p>
+  <h1>{{ person.name }}</h1>
+
+  <div class="card">
+    <table>
+      <tbody>
+        <tr><th>Date of birth</th><td class="num">{{ person.date_of_birth or "—" }}</td></tr>
+        <tr><th>Athlete baseline</th><td>{{ "Yes" if person.athlete_baseline else "No" }}</td></tr>
+        <tr><th>Max HR</th><td class="num">{{ person.max_hr_bpm or "—" }}</td></tr>
+        <tr><th>Resting HR</th><td class="num">{{ person.resting_hr_bpm or "—" }}</td></tr>
+        <tr><th>Sessions</th><td class="num">{{ person.sessions | length }}</td></tr>
+      </tbody>
+    </table>
+    <p>
+      <a class="button button-quiet" href="{{ url_for('people.edit', person_id=person.id) }}">Edit</a>
+    </p>
+  </div>
+
+  <p class="eyebrow">Sessions</p>
+  {% if person.sessions %}
+    <ul>
+      {% for session in person.sessions %}
+        <li>Session {{ session.id }} — {{ session.processing_status }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="empty-state">No sessions yet. Uploads arrive in a later phase.</div>
+  {% endif %}
+
+  <p class="eyebrow">Danger zone</p>
+  <div class="card">
+    <p>Deleting a person removes all their sessions, metrics, and flags. Type the name to confirm.</p>
+    <form method="post" action="{{ url_for('people.delete', person_id=person.id) }}">
+      <input type="text" name="confirm_name" placeholder="{{ person.name }}" aria-label="Type name to confirm">
+      <button type="submit" class="button-danger">Delete person</button>
+    </form>
+  </div>
+{% endblock %}
