@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ECG session report — {{ d.meta.person_name }} — {{ d.meta.activity_name }}</title>
+<style>
+{{ d.fonts_css | safe }}
+
+:root {
+  --paper: #FFFCFA; --grid-s: #F6CFC4; --grid-l: #E89A85;
+  --ink: #1B1E28; --accent: #2E5E4E; --warn: #B4472E;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; color: var(--ink);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 15px; line-height: 1.55;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid-l) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-l) 1px, transparent 1px),
+    linear-gradient(var(--grid-s) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-s) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
+}
+main { max-width: 1000px; margin: 0 auto; padding: 0 1.2rem 4rem; }
+.mono, td.num, th { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+td.num { font-variant-numeric: tabular-nums; }
+
+.masthead {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem;
+  border-bottom: 2.5px solid var(--ink);
+  background: var(--paper); padding: 1.1rem 1.2rem 0.8rem;
+}
+.masthead h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+.masthead .cal { color: var(--ink); font-family: "IBM Plex Mono", monospace; font-size: 1.4rem; }
+.eyebrow {
+  font-family: "IBM Plex Mono", monospace; font-size: 0.72rem;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent);
+  margin: 2.2rem 0 0.4rem;
+}
+.tool-note {
+  font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--warn);
+  background: var(--paper); border-bottom: 1px solid var(--grid-l);
+  padding: 0.35rem 1.2rem;
+}
+.card { background: var(--paper); border: 1px solid var(--grid-l); border-radius: 4px; padding: 1rem 1.2rem; margin: 0.6rem 0; }
+.banner-warn {
+  background: var(--paper); border: 2px solid var(--warn); border-radius: 4px;
+  padding: 1rem 1.2rem; margin: 0.8rem 0; color: var(--warn); font-weight: 600;
+}
+.badge {
+  font-family: "IBM Plex Mono", monospace; font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.08em; border: 1px solid currentColor; border-radius: 3px;
+  padding: 0.08rem 0.4rem; vertical-align: middle;
+}
+.badge-warn { color: var(--warn); }
+.badge-ok { color: var(--accent); }
+
+.kpis { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.kpi {
+  background: var(--paper); border: 1px solid var(--grid-l); border-radius: 4px;
+  padding: 0.6rem 0.9rem; min-width: 10rem; flex: 1;
+}
+.kpi .label { font-family: "IBM Plex Mono", monospace; font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.kpi .value { font-family: "IBM Plex Mono", monospace; font-size: 1.35rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.kpi .note { font-size: 0.74rem; color: #666; }
+.kpi.headline { border: 2px solid var(--accent); }
+
+figure { margin: 0.8rem 0; background: var(--paper); border: 1px solid var(--grid-l); border-radius: 4px; padding: 0.6rem; }
+figure img { display: block; max-width: 100%; height: auto; }
+figure.strip { overflow-x: auto; }
+figcaption { font-size: 0.76rem; color: #555; margin-top: 0.4rem; }
+
+table { border-collapse: collapse; width: 100%; background: var(--paper); font-size: 0.85rem; }
+th, td { text-align: left; padding: 0.32rem 0.6rem; border-bottom: 1px solid var(--grid-s); }
+th { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); }
+
+.flag { border: 1.5px solid var(--warn); border-radius: 4px; background: var(--paper); padding: 1rem 1.2rem; margin: 0.8rem 0; }
+.flag h3 { margin: 0 0 0.4rem; color: var(--warn); font-size: 1rem; }
+.flag .disclaimer {
+  margin-top: 0.7rem; padding: 0.55rem 0.8rem; border-left: 3px solid var(--warn);
+  background: #FBF1ED; font-size: 0.8rem;
+}
+.evidence { font-size: 0.78rem; margin-top: 0.5rem; }
+.caution { border-left: 3px solid var(--warn); background: var(--paper); padding: 0.5rem 0.9rem; margin: 0.5rem 0; font-size: 0.85rem; }
+.suppressed { border-left: 3px solid var(--ink); background: var(--paper); padding: 0.5rem 0.9rem; margin: 0.5rem 0; font-size: 0.85rem; }
+ul.notes { font-size: 0.82rem; color: #444; }
+@media (max-width: 640px) { .kpis { flex-direction: column; } .masthead { flex-direction: column; align-items: flex-start; } }
+@media print { body { background-image: none; } figure.strip { overflow-x: visible; } }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div>
+    <h1>ECG session report — {{ d.meta.person_name }}</h1>
+    <div class="mono" style="font-size:0.8rem">
+      {{ d.meta.activity_name }}
+      {% if d.meta.recorded_at %} · recorded {{ d.meta.recorded_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}
+      {% if d.meta.reduced_confidence %} <span class="badge badge-warn">reduced confidence</span>{% endif %}
+    </div>
+  </div>
+  <div class="cal" title="1 mV calibration">⎍ <span style="font-size:0.65rem">1&nbsp;mV</span></div>
+</header>
+<div class="tool-note">Screening &amp; fitness report — not a diagnostic document. Nothing here is a diagnosis.</div>
+
+<main>
+
+{% if d.analysis.not_analysable %}
+  <div class="banner-warn">{{ d.analysis.not_analysable_reason }}</div>
+{% endif %}
+
+<p class="eyebrow">Data integrity</p>
+<div class="card">
+  <table>
+    <tbody>
+      <tr><th>Source file</th><td class="num">{{ d.meta.original_filename }}{% if d.meta.file_sha256 %} · sha256 {{ d.meta.file_sha256[:12] }}…{% endif %}</td></tr>
+      <tr><th>Sampling rate</th><td class="num">{{ "%.3f" | format(d.result.sampling_rate_hz) }} Hz (derived from timestamps)</td></tr>
+      <tr><th>Engine</th><td class="num">{{ d.result.engine_used }}{% if d.result.fallback_reason %} — fallback: {{ d.result.fallback_reason }}{% endif %}</td></tr>
+      {% if d.result.device_rr_median_abs_diff_ms is not none %}
+      <tr><th>Device cross-check</th><td class="num">median |ΔRR| {{ "%.0f" | format(d.result.device_rr_median_abs_diff_ms) }} ms vs the strap's own rr stream</td></tr>
+      {% endif %}
+      {% if d.meta.context_note %}<tr><th>Context note</th><td>{{ d.meta.context_note }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+  <ul class="notes">
+    {% for note in d.result.notes %}<li>{{ note }}</li>{% endfor %}
+  </ul>
+</div>
+
+<p class="eyebrow">At a glance</p>
+<div class="kpis">
+  {% for label, value, note in d.kpis %}
+    <div class="kpi {{ 'headline' if loop.first }}">
+      <div class="label">{{ label }}</div>
+      <div class="value">{{ value }}</div>
+      {% if note %}<div class="note">{{ note }}</div>{% endif %}
+    </div>
+  {% endfor %}
+</div>
+
+{% if d.analysis.suppressions %}
+  <div class="suppressed">
+    <strong>Suppressed for this activity:</strong>
+    <ul class="notes">
+      {% for s in d.analysis.suppressions %}<li>{{ s.reason }}</li>{% endfor %}
+    </ul>
+  </div>
+{% endif %}
+{% for c in d.analysis.cautions %}
+  <div class="caution"><strong class="mono" style="font-size:0.7rem;text-transform:uppercase">{{ c.family.replace("_", " ") }}</strong> — {{ c.reason }}</div>
+{% endfor %}
+
+{% if not d.analysis.not_analysable %}
+
+<p class="eyebrow">Rhythm strips — true scale</p>
+{% for strip in d.strips %}
+  <figure class="strip">
+    <img src="{{ strip.data_uri }}" alt="ECG rhythm strip" {% if strip.css_width_mm %}style="width: {{ '%.0f' | format(strip.css_width_mm) }}mm; max-width: none;"{% endif %}>
+    <figcaption>{{ strip.caption }}</figcaption>
+  </figure>
+{% endfor %}
+
+<p class="eyebrow">Heart rate</p>
+{% if d.figures.hr %}
+  <figure><img src="{{ d.figures.hr.data_uri }}" alt="Heart rate over the session"><figcaption>{{ d.figures.hr.caption }}</figcaption></figure>
+{% endif %}
+
+<p class="eyebrow">HRV</p>
+<div style="display:flex; flex-wrap:wrap; gap:0.8rem">
+  {% for key in ("poincare", "rr_hist", "sdnn_windows") %}
+    {% if d.figures[key] %}
+      <figure style="flex:1; min-width:260px"><img src="{{ d.figures[key].data_uri }}" alt="{{ key }}"><figcaption>{{ d.figures[key].caption }}</figcaption></figure>
+    {% endif %}
+  {% endfor %}
+</div>
+
+{% if d.figures.spectrum %}
+<p class="eyebrow">RR spectrum</p>
+<figure><img src="{{ d.figures.spectrum.data_uri }}" alt="RR spectrum"><figcaption>{{ d.figures.spectrum.caption }}</figcaption></figure>
+{% endif %}
+
+{% if d.figures.template %}
+<p class="eyebrow">Beat morphology</p>
+<figure><img src="{{ d.figures.template.data_uri }}" alt="Beat template overlay"><figcaption>{{ d.figures.template.caption }}</figcaption></figure>
+{% endif %}
+
+{% if d.figures.quality %}
+<p class="eyebrow">Quality &amp; motion</p>
+<figure><img src="{{ d.figures.quality.data_uri }}" alt="Quality and motion traces"><figcaption>{{ d.figures.quality.caption }}</figcaption></figure>
+{% endif %}
+
+{% if d.extras_rows %}
+<p class="eyebrow">Activity-specific metrics</p>
+<div class="card">
+  <table><tbody>
+    {% for label, value in d.extras_rows %}
+      <tr><th>{{ label }}</th><td class="num">{{ value }}</td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+<p class="eyebrow">Per-minute detail</p>
+<div class="card" style="overflow-x:auto">
+  <table>
+    <thead><tr><th>Min</th><th>Mean HR</th><th>SDNN</th><th>RMSSD</th><th>Excluded</th><th>SQI</th></tr></thead>
+    <tbody>
+      {% for row in d.minute_rows %}
+        <tr>
+          <td class="num">{{ row.minute }}</td>
+          <td class="num">{{ row.mean_hr_bpm | num }}</td>
+          <td class="num">{{ row.sdnn_ms | num }}</td>
+          <td class="num">{{ row.rmssd_ms | num }}</td>
+          <td class="num">{{ "%.0f s" | format(row.excluded_s) if row.excluded_s else "—" }}</td>
+          <td class="num">{{ row.sqi_mean | num }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endif %}{# not_analysable #}
+
+<p class="eyebrow">Screening</p>
+{% if d.flags %}
+  {% for flag in d.flags %}
+    <div class="flag">
+      <h3>{{ flag.kind.replace("_", " ") }} <span class="badge badge-warn">{{ flag.severity }}</span></h3>
+      <p>{{ flag.description }}</p>
+      <div class="evidence">
+        <strong>Evidence:</strong>
+        {% for k, v in flag.evidence.items() %}<span class="mono">{{ k }}={{ v }}</span>{{ " · " if not loop.last }}{% endfor %}<br>
+        <strong>Threshold:</strong>
+        {% for k, v in flag.threshold.items() %}<span class="mono">{{ k }}={{ v }}</span>{{ " · " if not loop.last }}{% endfor %}
+      </div>
+      <div class="disclaimer">{{ flag.disclaimer }}</div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="card">{{ d.no_flags_statement }}</div>
+{% endif %}
+
+<p class="eyebrow">Interpretation notes</p>
+<div class="card"><ul class="notes">
+  {% for note in d.analysis.notes %}<li>{{ note }}</li>{% endfor %}
+  {% for note in d.hrv.notes %}<li>{{ note }}</li>{% endfor %}
+</ul></div>
+
+<p class="eyebrow">Limits of this report</p>
+<div class="card">
+  <ul class="notes">
+    <li>This is a screening and fitness tool built on a single-lead chest strap. It cannot diagnose anything, and no output in it is a diagnosis.</li>
+    <li>{{ d.interval_explanation }}</li>
+    <li>Noisy or lead-off stretches are excluded and reported — never interpolated. The excluded-time figure at the top is part of the result, not a footnote.</li>
+    <li>LF/HF and other frequency-domain values are engine-dependent and descriptive only; nothing in this tool scores or flags on them.</li>
+    <li>Whole-record SDNN is trend-inclusive and length-dependent; compare it only against recordings of similar duration.</li>
+    <li>HRV values are only comparable within the same activity type — posture and motion dominate HRV far more than fitness does.</li>
+  </ul>
+</div>
+
+<p class="mono" style="font-size:0.7rem; color:#777; margin-top:2rem">
+  Generated {{ d.generated_at.strftime("%Y-%m-%d %H:%M UTC") }} · self-contained document, produced fully offline
+</p>
+
+</main>
+</body>
+</html>

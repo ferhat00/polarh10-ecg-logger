@@ -28,10 +28,12 @@ def create_app(config_object: object | None = None) -> Flask:
     from app.blueprints.activities import bp as activities_bp
     from app.blueprints.home import bp as home_bp
     from app.blueprints.people import bp as people_bp
+    from app.blueprints.report_preview import bp as report_preview_bp
 
     app.register_blueprint(home_bp)
     app.register_blueprint(people_bp)
     app.register_blueprint(activities_bp)
+    app.register_blueprint(report_preview_bp)
 
     return app
 

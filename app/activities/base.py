@@ -234,6 +234,8 @@ _FAMILY_FIELDS: dict[str, tuple[str, ...]] = {
         "lf_hf_ratio",
         "lf_peak_hz",
         "psd_method",
+        "psd_freq_hz",
+        "psd_ms2_per_hz",
     ),
     MetricFamily.NONLINEAR: (
         "sd1_ms",

@@ -70,6 +70,10 @@ class HRVResult:
     #: Frequency of the dominant spectral peak in the LF band, if any.
     lf_peak_hz: float | None = None
     psd_method: str | None = None
+    #: The averaged Welch PSD itself (for the report's spectrum figure —
+    #: not persisted to the metrics table).
+    psd_freq_hz: list[float] = field(default_factory=list)
+    psd_ms2_per_hz: list[float] = field(default_factory=list)
 
     # Nonlinear
     sd1_ms: float | None = None
@@ -168,6 +172,8 @@ def _frequency_domain(result: HRVResult, rr: RRSeries) -> None:
         weights.append(t[-1] - t[0])
 
     psd = np.average(psds, axis=0, weights=weights)
+    result.psd_freq_hz = [float(f) for f in freqs]
+    result.psd_ms2_per_hz = [float(p) for p in psd]
 
     def band_power(lo: float, hi: float) -> float:
         mask = (freqs >= lo) & (freqs < hi)
