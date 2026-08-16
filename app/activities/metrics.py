@@ -40,6 +40,22 @@ def per_minute_hr(rr: RRSeries) -> tuple[list[float], list[float]]:
     return starts, means
 
 
+def lowest_sustained_hr(rr: RRSeries, window_s: float = 60.0) -> float | None:
+    """Lowest rolling-`window_s` mean HR — a resting-HR proxy."""
+    if len(rr) < 20:
+        return None
+    best: float | None = None
+    t0, t1 = float(rr.t_s[0]), float(rr.t_s[-1])
+    w = t0
+    while w + window_s <= t1 + 10.0:
+        mask = (rr.t_s >= w) & (rr.t_s < w + window_s)
+        if int(np.sum(mask)) >= 10:
+            hr = float(60000.0 / np.mean(rr.rr_ms[mask]))
+            best = hr if best is None else min(best, hr)
+        w += 10.0
+    return best
+
+
 def hr_trend_bpm_per_min(rr: RRSeries) -> float | None:
     """Least-squares slope of instantaneous HR over the session, bpm/min."""
     if len(rr) < 30:

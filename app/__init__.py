@@ -28,6 +28,7 @@ def create_app(config_object: object | None = None) -> Flask:
     from app.blueprints.activities import bp as activities_bp
     from app.blueprints.compare import bp as compare_bp
     from app.blueprints.home import bp as home_bp
+    from app.blueprints.logbook import bp as logbook_bp
     from app.blueprints.people import bp as people_bp
     from app.blueprints.report_preview import bp as report_preview_bp
     from app.blueprints.sessions import bp as sessions_bp
@@ -38,6 +39,7 @@ def create_app(config_object: object | None = None) -> Flask:
     app.register_blueprint(report_preview_bp)
     app.register_blueprint(sessions_bp)
     app.register_blueprint(compare_bp)
+    app.register_blueprint(logbook_bp)
 
     return app
 

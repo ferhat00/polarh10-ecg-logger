@@ -22,6 +22,7 @@ import numpy as np
 from flask import Flask
 
 from app.activities.base import ActivityInputs, PersonContext, apply_suppressions
+from app.activities.metrics import lowest_sustained_hr
 from app.activities.registry import resolve_profile
 from app.extensions import db
 from app.ingest.exceptions import AmbiguousFormatError, LoaderError
@@ -72,6 +73,12 @@ def _process(app: Flask, session_id: int) -> None:
             result = run_pipeline(rec)
             _persist(session, rec, result)
             session.processing_status = ProcessingStatus.DONE
+            # Refresh relationships so the log entry sees this run's rows.
+            db.session.flush()
+            db.session.expire(session, ["flags", "metrics"])
+            from app.logbook.writer import append_session_entry
+
+            append_session_entry(session)
         except AmbiguousFormatError as exc:
             session.processing_status = ProcessingStatus.NEEDS_MAPPING
             session.error_message = json.dumps(exc.as_dict())
@@ -178,7 +185,12 @@ def _persist(session: Session, rec: LoadedRecording, result: PipelineResult) -> 
 def _build_extras(
     result: PipelineResult, hrv: HRVResult, analysis
 ) -> dict:
+    sqi_values = [
+        w.sqi_mean for w in result.quality.windows if not np.isnan(w.sqi_mean)
+    ]
     return {
+        "sqi_mean": float(np.mean(sqi_values)) if sqi_values else None,
+        "resting_hr_bpm": lowest_sustained_hr(result.rr),
         "activity": analysis.extras,
         "profile_key": analysis.profile_key,
         "not_analysable": analysis.not_analysable,

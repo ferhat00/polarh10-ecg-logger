@@ -23,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
+from app.activities.metrics import lowest_sustained_hr
 from app.activities.registry import resolve_profile
 from app.models import Session
 from app.pipeline.rr import RRSeries
@@ -72,20 +73,8 @@ def load_cached_rr(session: Session) -> RRSeries | None:
     )
 
 
-def resting_hr_bpm(rr: RRSeries, window_s: float = 60.0) -> float | None:
-    """Lowest sustained (rolling 60 s mean) HR — a resting-HR proxy."""
-    if len(rr) < 20:
-        return None
-    best: float | None = None
-    t0, t1 = float(rr.t_s[0]), float(rr.t_s[-1])
-    w = t0
-    while w + window_s <= t1 + 10.0:
-        mask = (rr.t_s >= w) & (rr.t_s < w + window_s)
-        if int(np.sum(mask)) >= 10:
-            hr = float(60000.0 / np.mean(rr.rr_ms[mask]))
-            best = hr if best is None else min(best, hr)
-        w += 10.0
-    return best
+#: Lowest sustained (rolling 60 s mean) HR — shared with the processing layer.
+resting_hr_bpm = lowest_sustained_hr
 
 
 # ---------------------------------------------------------------------------

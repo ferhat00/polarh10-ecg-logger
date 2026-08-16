@@ -16,6 +16,8 @@
     </table>
     <p>
       <a class="button button-quiet" href="{{ url_for('people.edit', person_id=person.id) }}">Edit</a>
+      <a class="button button-quiet" href="{{ url_for('logbook.timeline', person_id=person.id) }}">Decision log</a>
+      <a class="button button-quiet" href="{{ url_for('compare.select_sessions', person_id=person.id) }}">Compare sessions</a>
     </p>
   </div>
 
