@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Add activity — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Activity profiles</p>
+  <h1>Add activity</h1>
+  <p>
+    A custom activity inherits its analysis behaviour — suppression rules, derived
+    metrics, screening limits — from the built-in profile you choose here.
+  </p>
+
+  <form class="stack" method="post">
+    <label>
+      Name
+      <input type="text" name="name" value="{{ form.get('name', '') }}" required
+             placeholder="e.g. Yoga, Rowing, Desk work">
+    </label>
+    <label>
+      Behaves like
+      <select name="profile_key" required>
+        <option value="" disabled {{ "selected" if not form.get('profile_key') }}>choose a profile…</option>
+        {% for key, p in profiles.items() %}
+          <option value="{{ key }}" {{ "selected" if form.get('profile_key') == key }}>
+            {{ p.display_name }} — {{ p.expected_motion }} motion
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Expected HR range (bpm) <span class="hint">optional override of the profile's range</span>
+      <div>
+        <input type="number" name="expected_hr_min" min="25" max="250" style="width:6rem"
+               value="{{ form.get('expected_hr_min', '') }}" placeholder="min">
+        –
+        <input type="number" name="expected_hr_max" min="25" max="250" style="width:6rem"
+               value="{{ form.get('expected_hr_max', '') }}" placeholder="max">
+      </div>
+    </label>
+    <label>
+      Comparison group <span class="hint">optional — sessions compare within this group; defaults to the inherited profile's group</span>
+      <input type="text" name="comparison_key" value="{{ form.get('comparison_key', '') }}"
+             placeholder="e.g. yoga">
+    </label>
+    <div>
+      <button type="submit">Create</button>
+      <a class="button button-quiet" href="{{ url_for('activities.list_activities') }}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

@@ -25,11 +25,13 @@ def create_app(config_object: object | None = None) -> Flask:
     migrate.init_app(app, db)
 
     from app import models  # noqa: F401 - register models with the metadata
+    from app.blueprints.activities import bp as activities_bp
     from app.blueprints.home import bp as home_bp
     from app.blueprints.people import bp as people_bp
 
     app.register_blueprint(home_bp)
     app.register_blueprint(people_bp)
+    app.register_blueprint(activities_bp)
 
     return app
 
