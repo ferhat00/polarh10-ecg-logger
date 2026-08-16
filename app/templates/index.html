@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}ECG Logger — Home{% endblock %}
+{% block content %}
+  <p class="eyebrow">Sessions &amp; screening</p>
+  <h1>Polar H10 ECG Logger</h1>
+  <p>
+    Upload raw ECG exports from a Polar H10 chest strap, get a per-session report,
+    screen for patterns worth noting, and compare sessions over time.
+    This is a screening and fitness tool — it does not diagnose anything.
+  </p>
+
+  {% if people %}
+    <p class="eyebrow">People</p>
+    <div class="card">
+      <ul>
+        {% for person in people %}
+          <li><a href="{{ url_for('people.detail', person_id=person.id) }}">{{ person.name }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <p>No people yet. Sessions belong to a person (several people can share one strap).</p>
+      <a class="button" href="{{ url_for('people.create') }}">Add the first person</a>
+    </div>
+  {% endif %}
+{% endblock %}
