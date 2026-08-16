@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Compare — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Comparison</p>
+  <h1>Compare sessions</h1>
+  <p>Pick a person; sessions compare within the same activity type by default.</p>
+  {% if people %}
+    <div class="card"><ul>
+      {% for p in people %}
+        <li><a href="{{ url_for('compare.select_sessions', person_id=p.id) }}">{{ p.name }}</a>
+            <span class="hint">({{ p.sessions | length }} session(s))</span></li>
+      {% endfor %}
+    </ul></div>
+  {% else %}
+    <div class="empty-state">No people yet.</div>
+  {% endif %}
+{% endblock %}

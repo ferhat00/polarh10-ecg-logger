@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Trends — {{ person.name }} — {{ data.comparison_key }}{% endblock %}
+{% block content %}
+  <p class="eyebrow">Longitudinal</p>
+  <h1>{{ person.name }} — {{ data.comparison_key }} over time</h1>
+
+  {% if data.provisional %}
+    <div class="flash flash-error">
+      Provisional baseline: only {{ data.points | length }} session(s) of this activity
+      exist. Confident baseline bands need at least 5 — trends below are dots, not
+      conclusions.
+    </div>
+  {% endif %}
+
+  {% if data.points | length < 2 %}
+    <div class="empty-state">Fewer than two completed sessions of this activity —
+    nothing to plot yet.</div>
+  {% else %}
+    {% for key in ("resting", "ln_rmssd") %}
+      {% if figures.get(key) %}
+        <figure class="card">
+          <img src="{{ figures[key].data_uri }}" alt="{{ key }} trend" style="max-width:100%">
+          <figcaption class="hint">{{ figures[key].caption }}</figcaption>
+        </figure>
+      {% endif %}
+    {% endfor %}
+
+    <p class="eyebrow">Sessions</p>
+    <div class="card" style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Session</th><th>Date</th><th>Resting HR</th><th>RMSSD</th><th>ln(RMSSD)</th></tr></thead>
+        <tbody>
+          {% for p in data.points %}
+            <tr>
+              <td class="num"><a href="{{ url_for('sessions.detail', session_id=p.session_id) }}">#{{ p.session_id }}</a></td>
+              <td class="num">{{ p.recorded_at.strftime("%Y-%m-%d") if p.recorded_at else "—" }}</td>
+              <td class="num">{{ "%.0f"|format(p.resting_hr_bpm) if p.resting_hr_bpm else "—" }}</td>
+              <td class="num">{{ "%.1f"|format(p.rmssd_ms) if p.rmssd_ms else "—" }}</td>
+              <td class="num">{{ "%.2f"|format(p.ln_rmssd) if p.ln_rmssd else "—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endblock %}

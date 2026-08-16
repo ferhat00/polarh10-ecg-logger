@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Log — {{ person.name }}{% endblock %}
+{% block content %}
+  <p class="eyebrow">Decision log</p>
+  <h1>{{ person.name }} — history</h1>
+  <p>
+    Append-only record of every completed analysis and every annotation. The
+    underlying file lives at <span class="mono">data/logs/{{ person.slug }}_history.md</span>
+    and is never rewritten or reordered.
+  </p>
+
+  <div class="card">
+    <form class="stack" method="post" action="{{ url_for('logbook.annotate', person_id=person.id) }}">
+      <label>
+        Add an annotation
+        <textarea name="text" rows="2" placeholder="e.g. started new training block; slept badly all week"></textarea>
+      </label>
+      <label>
+        Session id <span class="hint">optional — ties the note to a session</span>
+        <input type="number" name="session_id" min="1" style="width: 8rem">
+      </label>
+      <div><button type="submit">Append to log</button></div>
+    </form>
+  </div>
+
+  {% if entries %}
+    {% for entry in entries %}
+      <div class="card log-entry">{{ entry }}</div>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">Nothing logged yet — entries appear when an analysis
+    completes or you add an annotation.</div>
+  {% endif %}
+{% endblock %}

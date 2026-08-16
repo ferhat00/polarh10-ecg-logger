@@ -45,3 +45,5 @@ class TestConfig(Config):
     TESTING: bool = True
     SQLALCHEMY_DATABASE_URI: str = "sqlite://"
     WTF_CSRF_ENABLED: bool = False
+    #: Run session processing inline instead of on a thread (deterministic).
+    PROCESS_SYNC: bool = True

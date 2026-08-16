@@ -1,0 +1,312 @@
+"""Server-side report rendering: a self-contained HTML page.
+
+Figures are inlined as base64 PNGs and the IBM Plex fonts as base64 woff2, so
+the rendered file is a single artifact that works fully offline and can be
+downloaded as-is. No JS charting, no external requests of any kind.
+"""
+
+from __future__ import annotations
+
+import base64
+import datetime as dt
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+from app.activities import metrics as activity_metrics
+from app.activities.base import ActivityAnalysis
+from app.activities.registry import ResolvedActivity
+from app.ingest.loader import LoadedRecording
+from app.pipeline.hrv import HRVResult
+from app.pipeline.process import PipelineResult
+from app.report import figures as fig
+from app.screening.flags import NO_FLAGS_STATEMENT, ScreeningFlag
+
+_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
+_FONT_DIR = Path(__file__).resolve().parent.parent / "static" / "vendor" / "fonts"
+
+#: Why interval measurements are absent — used in the report limits section
+#: and wherever a user asks for them.
+INTERVAL_METRICS_EXPLANATION = (
+    "QRS width, QT/QTc, PR interval, and ECG axis are not computed anywhere in this "
+    "tool. The H10 samples at ~130 Hz, so one sample spans 7.7 ms and a QRS complex "
+    "is only ~12 samples wide; delineation algorithms will still return numbers at "
+    "this resolution, but they are quantisation artifacts, not physiology. Interval "
+    "measurement needs 500–1000 Hz and multiple leads."
+)
+
+
+@dataclass
+class ReportMeta:
+    """Session metadata shown in the report header."""
+
+    person_name: str = ""
+    activity_name: str = ""
+    recorded_at: dt.datetime | None = None
+    context_note: str | None = None
+    original_filename: str = ""
+    file_sha256: str | None = None
+    reduced_confidence: bool = False
+
+
+@dataclass
+class MinuteRow:
+    minute: int
+    mean_hr_bpm: float | None = None
+    sdnn_ms: float | None = None
+    rmssd_ms: float | None = None
+    excluded_s: float = 0.0
+    sqi_mean: float | None = None
+
+
+@dataclass
+class ReportData:
+    """Everything the template needs, assembled by :func:`build_report_html`."""
+
+    meta: ReportMeta
+    result: PipelineResult
+    hrv: HRVResult  # censored (post-suppression) version
+    analysis: ActivityAnalysis
+    activity: ResolvedActivity | None
+    flags: list[ScreeningFlag]
+    figures: dict[str, fig.Figure | None] = field(default_factory=dict)
+    strips: list[fig.Figure] = field(default_factory=list)
+    minute_rows: list[MinuteRow] = field(default_factory=list)
+    kpis: list[tuple[str, str, str]] = field(default_factory=list)  # (label, value, note)
+    extras_rows: list[tuple[str, str]] = field(default_factory=list)
+    fonts_css: str = ""
+    no_flags_statement: str = NO_FLAGS_STATEMENT
+    interval_explanation: str = INTERVAL_METRICS_EXPLANATION
+    generated_at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
+
+
+def build_report_html(
+    rec: LoadedRecording,
+    result: PipelineResult,
+    hrv_censored: HRVResult,
+    analysis: ActivityAnalysis,
+    activity: ResolvedActivity | None,
+    flags: list[ScreeningFlag],
+    meta: ReportMeta,
+) -> str:
+    """Assemble figures + tables and render the standalone report page."""
+    data = ReportData(
+        meta=meta,
+        result=result,
+        hrv=hrv_censored,
+        analysis=analysis,
+        activity=activity,
+        flags=flags,
+    )
+    data.strips = _build_strips(rec, result)
+    data.figures = {
+        "hr": fig.hr_timeseries(
+            result.rr, result.quality.excluded_segments, rec.duration_s
+        ),
+        "poincare": fig.poincare(result.rr, hrv_censored),
+        "rr_hist": fig.rr_histogram(result.rr),
+        "sdnn_windows": fig.sdnn_per_window(hrv_censored),
+        "spectrum": fig.spectrum(hrv_censored),
+        "template": fig.beat_template(
+            result.morphology,
+            result.detection.ecg_clean,
+            result.sampling_rate_hz,
+            np.clip(result.correction.peaks_corrected, 0, len(rec.time_s) - 1),
+        ),
+        "quality": fig.quality_traces(result.quality),
+    }
+    data.minute_rows = _minute_table(result)
+    data.kpis = _kpis(rec, result, hrv_censored, analysis)
+    data.extras_rows = _format_extras(analysis.extras)
+    data.fonts_css = _fonts_css()
+
+    env = Environment(
+        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
+        autoescape=select_autoescape(["html"]),
+    )
+    env.filters["num"] = _fmt_num
+    return env.get_template("report/report.html").render(d=data)
+
+
+# ---------------------------------------------------------------------------
+# Assembly helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_strips(rec: LoadedRecording, result: PipelineResult) -> list[fig.Figure]:
+    """First / middle / last 10 s strips, plus one centred on the worst
+    morphology outlier when outliers exist."""
+    duration = rec.duration_s
+    strip_len = 10.0
+    outlier_times = rec.time_s[
+        np.clip(result.correction.peaks_corrected, 0, len(rec.time_s) - 1)
+    ][result.morphology.outlier_mask[: len(result.correction.peaks_corrected)]]
+
+    wanted: list[tuple[float, str]] = [(0.0, "Opening strip")]
+    if duration > 3 * strip_len:
+        wanted.append(((duration - strip_len) / 2.0, "Mid-session strip"))
+    if duration > 2 * strip_len:
+        wanted.append((duration - strip_len, "Closing strip"))
+
+    strips: list[fig.Figure] = []
+    for start, label in wanted:
+        s = fig.rhythm_strip(
+            rec.time_s,
+            result.detection.ecg_clean,
+            start_s=start,
+            duration_s=min(strip_len, duration),
+            peak_times_s=result.peak_times_s,
+            outlier_times_s=outlier_times,
+            label=label,
+            with_calibration=label == "Opening strip",
+        )
+        if s is not None:
+            strips.append(s)
+
+    if len(outlier_times) > 0:
+        peaks = np.clip(result.correction.peaks_corrected, 0, len(rec.time_s) - 1)
+        corr = result.morphology.correlations[: len(peaks)]
+        masked = np.where(result.morphology.outlier_mask[: len(corr)], corr, np.nan)
+        worst_beat = int(np.nanargmin(masked))
+        t_worst = float(rec.time_s[int(peaks[worst_beat])])
+        start = max(0.0, min(t_worst - strip_len / 2.0, duration - strip_len))
+        s = fig.rhythm_strip(
+            rec.time_s,
+            result.detection.ecg_clean,
+            start_s=start,
+            duration_s=min(strip_len, duration),
+            peak_times_s=result.peak_times_s,
+            outlier_times_s=outlier_times,
+            label="Worst morphology outlier",
+            with_calibration=False,
+        )
+        if s is not None:
+            strips.append(s)
+    return strips
+
+
+def _minute_table(result: PipelineResult) -> list[MinuteRow]:
+    rr = result.rr
+    if len(rr) == 0:
+        return []
+    rmssd_t, rmssd_v = activity_metrics.per_minute_rmssd(rr)
+    rmssd_by_min = {int(t // 60): v for t, v in zip(rmssd_t, rmssd_v, strict=True)}
+    sdnn_by_min = {
+        int(t // 60): v
+        for t, v in zip(result.hrv.sdnn_window_t_s, result.hrv.sdnn_per_window_ms, strict=True)
+    }
+
+    end_min = int(float(rr.t_s[-1]) // 60) + 1
+    rows: list[MinuteRow] = []
+    for minute in range(end_min):
+        w0, w1 = minute * 60.0, (minute + 1) * 60.0
+        mask = (rr.t_s >= w0) & (rr.t_s < w1)
+        row = MinuteRow(minute=minute)
+        if int(np.sum(mask)) >= 5:
+            row.mean_hr_bpm = float(60000.0 / np.mean(rr.rr_ms[mask]))
+        row.sdnn_ms = sdnn_by_min.get(minute)
+        row.rmssd_ms = rmssd_by_min.get(minute)
+        row.excluded_s = sum(
+            max(0.0, min(e, w1) - max(s, w0))
+            for s, e, _ in result.quality.excluded_segments
+        )
+        sqis = [
+            w.sqi_mean
+            for w in result.quality.windows
+            if w.start_s >= w0 and w.end_s <= w1 and not np.isnan(w.sqi_mean)
+        ]
+        row.sqi_mean = float(np.mean(sqis)) if sqis else None
+        rows.append(row)
+    return rows
+
+
+def _kpis(
+    rec: LoadedRecording,
+    result: PipelineResult,
+    hrv: HRVResult,
+    analysis: ActivityAnalysis,
+) -> list[tuple[str, str, str]]:
+    q = result.quality
+    kpis: list[tuple[str, str, str]] = [
+        (
+            "Excluded time",
+            f"{q.excluded_total_s:.0f} s",
+            f"of {q.excluded_total_s + q.analysed_total_s:.0f} s — "
+            f"{q.analysed_total_s:.0f} s analysed",
+        ),
+        ("Beats analysed", f"{hrv.n_beats}", ""),
+        (
+            "Beats corrected",
+            f"{result.correction.pct_corrected:.2f}%",
+            "reduced confidence" if result.correction.reduced_confidence else "",
+        ),
+    ]
+    if hrv.mean_hr_bpm:
+        kpis.append(("Mean HR", f"{hrv.mean_hr_bpm:.0f} bpm", ""))
+    if hrv.rmssd_ms is not None:
+        kpis.append(("RMSSD", f"{hrv.rmssd_ms:.1f} ms", ""))
+    if hrv.sdnn_ms is not None:
+        note = "trend-inclusive"
+        if hrv.sdnn_per_window_ms:
+            note += (
+                f"; per-minute {min(hrv.sdnn_per_window_ms):.0f}–"
+                f"{max(hrv.sdnn_per_window_ms):.0f} ms"
+            )
+        kpis.append(("SDNN (whole record)", f"{hrv.sdnn_ms:.1f} ms", note))
+    kpis.append(("Engine", result.engine_used, result.fallback_reason or ""))
+    return kpis
+
+
+def _format_extras(extras: dict[str, Any]) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for key, value in extras.items():
+        label = key.replace("_", " ")
+        if value is None:
+            rows.append((label, "—"))
+        elif isinstance(value, dict):
+            inner = " · ".join(f"{k}: {_fmt_num(v)}" for k, v in value.items())
+            rows.append((label, inner))
+        elif isinstance(value, list):
+            if len(value) <= 8:
+                rows.append((label, ", ".join(_fmt_num(v) for v in value)))
+            # long series are plotted, not tabulated
+        else:
+            rows.append((label, _fmt_num(value)))
+    return rows
+
+
+def _fmt_num(value: Any) -> str:
+    if value is None:
+        return "—"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return f"{value:.2f}" if abs(value) < 1000 else f"{value:.0f}"
+    return str(value)
+
+
+def _fonts_css() -> str:
+    """@font-face rules with the vendored woff2 files inlined as base64."""
+    faces = (
+        ("IBM Plex Sans", 400, "IBMPlexSans-Regular.woff2"),
+        ("IBM Plex Sans", 600, "IBMPlexSans-SemiBold.woff2"),
+        ("IBM Plex Mono", 400, "IBMPlexMono-Regular.woff2"),
+        ("IBM Plex Mono", 500, "IBMPlexMono-Medium.woff2"),
+    )
+    rules = []
+    for family, weight, filename in faces:
+        path = _FONT_DIR / filename
+        if not path.exists():
+            continue
+        b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+        rules.append(
+            f"@font-face {{ font-family: '{family}'; font-weight: {weight}; "
+            f"font-style: normal; font-display: swap; "
+            f"src: url(data:font/woff2;base64,{b64}) format('woff2'); }}"
+        )
+    return "\n".join(rules)

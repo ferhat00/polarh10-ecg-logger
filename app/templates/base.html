@@ -12,7 +12,10 @@
       <span class="brand-pulse" aria-hidden="true">⎍</span> Polar H10 ECG Logger
     </a>
     <nav>
+      <a href="{{ url_for('sessions.upload') }}">Upload</a>
+      <a href="{{ url_for('compare.index') }}">Compare</a>
       <a href="{{ url_for('people.list_people') }}">People</a>
+      <a href="{{ url_for('activities.list_activities') }}">Activities</a>
     </nav>
   </header>
 

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Comparison — {{ person.name }}{% endblock %}
+{% block content %}
+  <p class="eyebrow">Comparison</p>
+  <h1>{{ person.name }} — {{ data.sessions | length }} sessions</h1>
+
+  {% for warning in data.warnings %}
+    <div class="flash flash-error" style="font-size:0.95rem">⚠ {{ warning }}</div>
+  {% endfor %}
+
+  <div class="card" style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Metric</th>
+          {% for s in data.sessions %}
+            <th>
+              <a href="{{ url_for('sessions.detail', session_id=s.id) }}">#{{ s.id }}</a><br>
+              {{ s.recorded_at.strftime("%Y-%m-%d") if s.recorded_at else "undated" }}<br>
+              <span style="text-transform:none; letter-spacing:0">{{ s.activity_type.name if s.activity_type }}</span>
+              {% if s.reduced_confidence %}<br><span class="badge badge-warn">reduced conf.</span>{% endif %}
+            </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in data.rows %}
+          <tr>
+            <th style="text-transform:none; letter-spacing:0">
+              {{ row.label }}{% if row.unit %} ({{ row.unit }}){% endif %}
+              {% if row.note %}<br><span class="hint" style="color:var(--warn)">⚠ {{ row.note }}</span>{% endif %}
+            </th>
+            {% for s in data.sessions %}
+              {% set i = loop.index0 %}
+              <td class="num">
+                {{ row.formatted(i) }}
+                {% if row.formatted_delta(i) %}
+                  <span class="hint">({{ row.formatted_delta(i) }})</span>
+                {% endif %}
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">Deltas in parentheses are relative to the earliest selected session.</p>
+  </div>
+
+  {% for key in ("hr", "rmssd") %}
+    {% if figures[key] %}
+      <figure class="card">
+        <img src="{{ figures[key].data_uri }}" alt="{{ key }} overlay" style="max-width:100%">
+        <figcaption class="hint">{{ figures[key].caption }}</figcaption>
+      </figure>
+    {% endif %}
+  {% endfor %}
+{% endblock %}

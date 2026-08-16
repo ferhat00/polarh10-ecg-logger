@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Error — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">500</p>
+  <h1>Something went wrong</h1>
+  <div class="empty-state">
+    <p>An unexpected error occurred. Your data on disk is untouched — uploads, caches,
+    and the decision log are only ever written to, never rewritten.</p>
+    <a class="button" href="{{ url_for('home.index') }}">Back to start</a>
+  </div>
+{% endblock %}

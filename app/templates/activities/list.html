@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Activities — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Activity profiles</p>
+  <h1>Activities</h1>
+  <p>
+    The activity you pick at upload decides which metrics are computed, which are
+    suppressed, and how results are read — posture and motion dominate HRV far more
+    than fitness does.
+  </p>
+  <p><a class="button" href="{{ url_for('activities.create') }}">Add activity</a></p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Behaves like</th><th>Expected HR</th>
+        <th>Motion</th><th>Comparison group</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in activities %}
+        {% set p = profiles[a.profile_key] %}
+        <tr>
+          <td>
+            {{ a.name }}
+            {% if p.is_reference_baseline %}<span class="badge badge-ok">reference baseline</span>{% endif %}
+          </td>
+          <td>{{ p.display_name if not a.is_builtin else "—" }}</td>
+          <td class="num">
+            {{ a.expected_hr_min or p.expected_hr_range[0] }}–{{ a.expected_hr_max or p.expected_hr_range[1] }} bpm
+          </td>
+          <td>{{ p.expected_motion }}</td>
+          <td class="mono">{{ a.comparison_key or p.comparison_key }}</td>
+          <td>{% if a.is_builtin %}<span class="badge">built-in</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

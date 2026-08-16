@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Not found — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">404</p>
+  <h1>Nothing at this address</h1>
+  <div class="empty-state">
+    <p>The page or session you asked for doesn't exist — it may have been deleted.</p>
+    <a class="button" href="{{ url_for('home.index') }}">Back to start</a>
+  </div>
+{% endblock %}

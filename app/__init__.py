@@ -25,11 +25,31 @@ def create_app(config_object: object | None = None) -> Flask:
     migrate.init_app(app, db)
 
     from app import models  # noqa: F401 - register models with the metadata
+    from app.blueprints.activities import bp as activities_bp
+    from app.blueprints.compare import bp as compare_bp
     from app.blueprints.home import bp as home_bp
+    from app.blueprints.logbook import bp as logbook_bp
     from app.blueprints.people import bp as people_bp
+    from app.blueprints.report_preview import bp as report_preview_bp
+    from app.blueprints.sessions import bp as sessions_bp
 
     app.register_blueprint(home_bp)
     app.register_blueprint(people_bp)
+    app.register_blueprint(activities_bp)
+    app.register_blueprint(report_preview_bp)
+    app.register_blueprint(sessions_bp)
+    app.register_blueprint(compare_bp)
+    app.register_blueprint(logbook_bp)
+
+    from flask import render_template
+
+    @app.errorhandler(404)
+    def not_found(_error: object):
+        return render_template("errors/404.html"), 404
+
+    @app.errorhandler(500)
+    def server_error(_error: object):
+        return render_template("errors/500.html"), 500
 
     return app
 
