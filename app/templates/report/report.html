@@ -80,7 +80,7 @@ th { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color
 
 .flag { border: 1.5px solid var(--warn); border-radius: 4px; background: var(--paper); padding: 1rem 1.2rem; margin: 0.8rem 0; }
 .flag h3 { margin: 0 0 0.4rem; color: var(--warn); font-size: 1rem; }
-.flag .disclaimer {
+.flag .disclaimer, .disclaimer {
   margin-top: 0.7rem; padding: 0.55rem 0.8rem; border-left: 3px solid var(--warn);
   background: #FBF1ED; font-size: 0.8rem;
 }
@@ -169,6 +169,95 @@ ul.notes { font-size: 0.82rem; color: #444; }
   <figure><img src="{{ d.figures.hr.data_uri }}" alt="Heart rate over the session"><figcaption>{{ d.figures.hr.caption }}</figcaption></figure>
 {% endif %}
 
+{% if d.sleep %}
+<p class="eyebrow">Sleep</p>
+
+{% if d.sleep_kpis %}
+<div class="kpis">
+  {% for label, value, note in d.sleep_kpis %}
+    <div class="kpi {{ 'headline' if loop.first }}">
+      <div class="label">{{ label }}</div>
+      <div class="value">{{ value }}</div>
+      {% if note %}<div class="note">{{ note }}</div>{% endif %}
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if d.sleep_figures.hypnogram %}
+  <figure><img src="{{ d.sleep_figures.hypnogram.data_uri }}" alt="Hypnogram"><figcaption>{{ d.sleep_figures.hypnogram.caption }}</figcaption></figure>
+{% endif %}
+{% if d.sleep_figures.stage_distribution %}
+  <figure><img src="{{ d.sleep_figures.stage_distribution.data_uri }}" alt="Stage distribution"><figcaption>{{ d.sleep_figures.stage_distribution.caption }}</figcaption></figure>
+{% endif %}
+{% if d.sleep_figures.movement %}
+  <figure><img src="{{ d.sleep_figures.movement.data_uri }}" alt="Movement trace"><figcaption>{{ d.sleep_figures.movement.caption }}</figcaption></figure>
+{% endif %}
+
+{% for engine, rows in d.sleep.stage_stats.items() %}
+  {% if rows %}
+  <div class="card">
+    <p class="eyebrow" style="padding:0">Per-stage heart statistics — {{ engine }}</p>
+    <table>
+      <thead><tr><th>Stage</th><th>Minutes</th><th>Mean HR</th><th>RMSSD</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.stage }}</td>
+            <td class="num">{{ "%.1f" | format(row.minutes) }}</td>
+            <td class="num">{{ row.mean_hr_bpm | num }}</td>
+            <td class="num">{{ row.mean_rmssd_ms | num }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+{% endfor %}
+
+{% if d.sleep.agreement %}
+<div class="card">
+  <p class="eyebrow" style="padding:0">Engine agreement</p>
+  <table>
+    <thead><tr><th>Engines</th><th>Compared as</th><th>Agreement</th><th>Cohen's κ</th><th>Epochs</th></tr></thead>
+    <tbody>
+      {% for row in d.sleep.agreement %}
+        <tr>
+          <td>{{ row.engine_a }} vs {{ row.engine_b }}</td>
+          <td>{{ row.vocab.value }}</td>
+          <td class="num">{{ ("%.0f%%" | format(row.percent_agree)) if row.percent_agree is not none else "—" }}</td>
+          <td class="num">{{ ("%.2f" | format(row.kappa)) if row.kappa is not none else "—" }}</td>
+          <td class="num">{{ row.n_epochs }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="note">Low agreement between engines means the night's numbers should be read as a range, not a value.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <p class="eyebrow" style="padding:0">Staging engines</p>
+  <ul class="notes">
+    {% for status in d.sleep.engines %}
+      <li>
+        <strong>{{ status.label }}</strong>{% if status.key == d.sleep.primary_engine %} — primary (fills the summary numbers above){% endif %}:
+        {% if status.available %}ran.{% else %}not available — {{ status.unavailable_reason }}{% endif %}
+      </li>
+    {% endfor %}
+    {% for hyp in d.sleep.hypnograms %}
+      <li class="mono" style="font-size:0.75rem">{{ hyp.engine }}: {{ hyp.accuracy_note }}</li>
+    {% endfor %}
+    {% if d.sleep.acc_error %}
+      <li><strong>Accelerometer:</strong> {{ d.sleep.acc_error }}</li>
+    {% endif %}
+    {% for note in d.sleep.notes %}<li>{{ note }}</li>{% endfor %}
+  </ul>
+</div>
+
+<div class="disclaimer">{{ d.sleep_disclaimer }}</div>
+{% endif %}{# d.sleep #}
+
 <p class="eyebrow">HRV</p>
 <div style="display:flex; flex-wrap:wrap; gap:0.8rem">
   {% for key in ("poincare", "rr_hist", "sdnn_windows") %}
@@ -204,14 +293,14 @@ ul.notes { font-size: 0.82rem; color: #444; }
 </div>
 {% endif %}
 
-<p class="eyebrow">Per-minute detail</p>
+<p class="eyebrow">Per-minute detail{% if d.minute_rows and d.minute_rows[0].span_min > 1 %} ({{ d.minute_rows[0].span_min }}-minute rows — long recording){% endif %}</p>
 <div class="card" style="overflow-x:auto">
   <table>
     <thead><tr><th>Min</th><th>Mean HR</th><th>SDNN</th><th>RMSSD</th><th>Excluded</th><th>SQI</th></tr></thead>
     <tbody>
       {% for row in d.minute_rows %}
         <tr>
-          <td class="num">{{ row.minute }}</td>
+          <td class="num">{{ row.minute }}{% if row.span_min > 1 %}–{{ row.minute + row.span_min - 1 }}{% endif %}</td>
           <td class="num">{{ row.mean_hr_bpm | num }}</td>
           <td class="num">{{ row.sdnn_ms | num }}</td>
           <td class="num">{{ row.rmssd_ms | num }}</td>

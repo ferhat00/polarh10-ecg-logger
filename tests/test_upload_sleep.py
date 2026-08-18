@@ -129,6 +129,13 @@ class TestSleepSessionEndToEnd:
         stages = np.array(hyp["stages"])
         assert np.any(stages[2:5] == 0)
 
+        # The rendered report carries the sleep section and its disclaimer.
+        from app.processing import report_path_for
+
+        report_html = report_path_for(session).read_text(encoding="utf-8")
+        assert "Hypnogram" in report_html
+        assert "substitute for a sleep study" in report_html
+
         # Cache v3 arrays.
         with np.load(cache_path_for(session)) as cache:
             assert int(cache["cache_version"][0]) >= 3

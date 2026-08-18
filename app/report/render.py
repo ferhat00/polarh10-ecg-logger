@@ -23,7 +23,9 @@ from app.ingest.loader import LoadedRecording
 from app.pipeline.hrv import HRVResult
 from app.pipeline.process import PipelineResult
 from app.report import figures as fig
+from app.report import sleep_figures
 from app.screening.flags import NO_FLAGS_STATEMENT, ScreeningFlag
+from app.sleep.orchestrator import SleepAnalysis
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 _FONT_DIR = Path(__file__).resolve().parent.parent / "static" / "vendor" / "fonts"
@@ -37,6 +39,24 @@ INTERVAL_METRICS_EXPLANATION = (
     "this resolution, but they are quantisation artifacts, not physiology. Interval "
     "measurement needs 500–1000 Hz and multiple leads."
 )
+
+#: Unconditional disclaimer for the sleep section — it renders whenever any
+#: staging output does, in the same spirit as the screening disclaimer that
+#: travels with every flag.
+SLEEP_DISCLAIMER = (
+    "Sleep stages here are estimated from heartbeat patterns (and movement, when "
+    "an accelerometer file is attached), not from brain activity. Even the best "
+    "published heart-beat-based model validated on this strap reaches ~80% "
+    "epoch agreement with laboratory polysomnography (Topalidis et al. 2023, "
+    "Sensors 23(5):2390) — treat every number as an estimate with real error. "
+    "This analysis cannot detect sleep apnea, periodic limb movements, or the "
+    "difference between quiet wakefulness and sleep misperception, and none of "
+    "its output is a diagnosis or a substitute for a sleep study."
+)
+
+#: Above this duration the per-minute table aggregates to 5-minute rows.
+MINUTE_TABLE_AGGREGATE_AFTER_MIN = 180.0
+MINUTE_TABLE_BUCKET_MIN = 5
 
 
 @dataclass
@@ -60,6 +80,8 @@ class MinuteRow:
     rmssd_ms: float | None = None
     excluded_s: float = 0.0
     sqi_mean: float | None = None
+    #: Row span in minutes (>1 when a long recording aggregates the table).
+    span_min: int = 1
 
 
 @dataclass
@@ -77,6 +99,11 @@ class ReportData:
     minute_rows: list[MinuteRow] = field(default_factory=list)
     kpis: list[tuple[str, str, str]] = field(default_factory=list)  # (label, value, note)
     extras_rows: list[tuple[str, str]] = field(default_factory=list)
+    # --- sleep section (sleep sessions only) ------------------------------
+    sleep: SleepAnalysis | None = None
+    sleep_figures: dict[str, fig.Figure | None] = field(default_factory=dict)
+    sleep_kpis: list[tuple[str, str, str]] = field(default_factory=list)
+    sleep_disclaimer: str = SLEEP_DISCLAIMER
     fonts_css: str = ""
     no_flags_statement: str = NO_FLAGS_STATEMENT
     interval_explanation: str = INTERVAL_METRICS_EXPLANATION
@@ -91,6 +118,7 @@ def build_report_html(
     activity: ResolvedActivity | None,
     flags: list[ScreeningFlag],
     meta: ReportMeta,
+    sleep: SleepAnalysis | None = None,
 ) -> str:
     """Assemble figures + tables and render the standalone report page."""
     data = ReportData(
@@ -100,6 +128,7 @@ def build_report_html(
         analysis=analysis,
         activity=activity,
         flags=flags,
+        sleep=sleep,
     )
     data.strips = _build_strips(rec, result)
     data.figures = {
@@ -122,6 +151,20 @@ def build_report_html(
     data.kpis = _kpis(rec, result, hrv_censored, analysis)
     data.extras_rows = _format_extras(analysis.extras)
     data.fonts_css = _fonts_css()
+
+    if sleep is not None:
+        data.sleep_figures = {
+            "hypnogram": sleep_figures.hypnogram_figure(
+                sleep.hypnograms, sleep.override_epochs_n
+            ),
+            "stage_distribution": sleep_figures.stage_distribution(sleep.summaries),
+            "movement": (
+                sleep_figures.movement_trace(sleep.acc_epochs)
+                if sleep.acc_epochs is not None
+                else None
+            ),
+        }
+        data.sleep_kpis = _sleep_kpis(sleep)
 
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATE_DIR)),
@@ -189,38 +232,107 @@ def _build_strips(rec: LoadedRecording, result: PipelineResult) -> list[fig.Figu
 
 
 def _minute_table(result: PipelineResult) -> list[MinuteRow]:
+    """Per-minute rows; long recordings aggregate to 5-minute rows.
+
+    Bucket membership is resolved with ``searchsorted``/pre-binning: an 8 h
+    night has ~480 rows over ~35 k intervals and ~5,800 quality windows,
+    where per-row scans are quadratic.
+    """
     rr = result.rr
     if len(rr) == 0:
         return []
-    rmssd_t, rmssd_v = activity_metrics.per_minute_rmssd(rr)
-    rmssd_by_min = {int(t // 60): v for t, v in zip(rmssd_t, rmssd_v, strict=True)}
-    sdnn_by_min = {
-        int(t // 60): v
-        for t, v in zip(result.hrv.sdnn_window_t_s, result.hrv.sdnn_per_window_ms, strict=True)
-    }
-
     end_min = int(float(rr.t_s[-1]) // 60) + 1
+    bucket = (
+        MINUTE_TABLE_BUCKET_MIN if end_min > MINUTE_TABLE_AGGREGATE_AFTER_MIN else 1
+    )
+    bucket_s = bucket * 60.0
+    n_rows = int(np.ceil(end_min / bucket))
+
+    rmssd_t, rmssd_v = activity_metrics.per_minute_rmssd(rr)
+    rmssd_rows: dict[int, list[float]] = {}
+    for t, v in zip(rmssd_t, rmssd_v, strict=True):
+        rmssd_rows.setdefault(int(t // bucket_s), []).append(v)
+    sdnn_rows: dict[int, list[float]] = {}
+    for t, v in zip(
+        result.hrv.sdnn_window_t_s, result.hrv.sdnn_per_window_ms, strict=True
+    ):
+        sdnn_rows.setdefault(int(t // bucket_s), []).append(v)
+    sqi_rows: dict[int, list[float]] = {}
+    for w in result.quality.windows:
+        if not np.isnan(w.sqi_mean):
+            sqi_rows.setdefault(int(w.start_s // bucket_s), []).append(w.sqi_mean)
+
+    edges = np.arange(n_rows + 1) * bucket_s
+    lo = np.searchsorted(rr.t_s, edges[:-1], side="left")
+    hi = np.searchsorted(rr.t_s, edges[1:], side="left")
+    csum = np.concatenate(([0.0], np.cumsum(rr.rr_ms)))
+
     rows: list[MinuteRow] = []
-    for minute in range(end_min):
-        w0, w1 = minute * 60.0, (minute + 1) * 60.0
-        mask = (rr.t_s >= w0) & (rr.t_s < w1)
-        row = MinuteRow(minute=minute)
-        if int(np.sum(mask)) >= 5:
-            row.mean_hr_bpm = float(60000.0 / np.mean(rr.rr_ms[mask]))
-        row.sdnn_ms = sdnn_by_min.get(minute)
-        row.rmssd_ms = rmssd_by_min.get(minute)
+    for b in range(n_rows):
+        w0, w1 = edges[b], edges[b + 1]
+        row = MinuteRow(minute=b * bucket, span_min=bucket)
+        n = int(hi[b] - lo[b])
+        if n >= 5 * bucket:
+            row.mean_hr_bpm = float(60000.0 / ((csum[hi[b]] - csum[lo[b]]) / n))
+        if b in sdnn_rows:
+            row.sdnn_ms = float(np.mean(sdnn_rows[b]))
+        if b in rmssd_rows:
+            row.rmssd_ms = float(np.mean(rmssd_rows[b]))
         row.excluded_s = sum(
             max(0.0, min(e, w1) - max(s, w0))
             for s, e, _ in result.quality.excluded_segments
         )
-        sqis = [
-            w.sqi_mean
-            for w in result.quality.windows
-            if w.start_s >= w0 and w.end_s <= w1 and not np.isnan(w.sqi_mean)
-        ]
-        row.sqi_mean = float(np.mean(sqis)) if sqis else None
+        if b in sqi_rows:
+            row.sqi_mean = float(np.mean(sqi_rows[b]))
         rows.append(row)
     return rows
+
+
+def _sleep_kpis(sleep: SleepAnalysis) -> list[tuple[str, str, str]]:
+    """(label, value, note) cards for the primary engine's summary."""
+    summary = sleep.primary_summary()
+    if summary is None:
+        return []
+    engine_note = f"engine: {sleep.primary_engine}"
+
+    def minutes(v: float | None) -> str:
+        if v is None:
+            return "—"
+        return f"{int(v // 60)} h {v % 60:02.0f} min" if v >= 60 else f"{v:.0f} min"
+
+    kpis = [
+        ("Time in bed", minutes(summary.tib_min), "recording span (≈ lights-off proxy)"),
+        ("Total sleep time", minutes(summary.tst_min), engine_note),
+        (
+            "Sleep efficiency",
+            f"{summary.sleep_efficiency_pct:.0f}%",
+            "TST / time in bed",
+        ),
+        (
+            "Sleep onset",
+            minutes(summary.sol_min) if summary.sol_min is not None else "—",
+            "first sleep epoch",
+        ),
+        (
+            "WASO",
+            minutes(summary.waso_min) if summary.waso_min is not None else "—",
+            "wake after sleep onset",
+        ),
+        (
+            "Awakenings",
+            str(summary.awakenings_n) if summary.awakenings_n is not None else "—",
+            "wake bouts ≥ 30 s",
+        ),
+    ]
+    if summary.deep_min is not None:
+        kpis.append(("Deep sleep", minutes(summary.deep_min), engine_note))
+    if summary.rem_min is not None:
+        kpis.append(("REM sleep", minutes(summary.rem_min), engine_note))
+    if summary.rem_latency_min is not None:
+        kpis.append(("REM latency", minutes(summary.rem_latency_min), "onset → first REM"))
+    if summary.unscored_min > 0:
+        kpis.append(("Unscored", minutes(summary.unscored_min), "insufficient signal"))
+    return kpis
 
 
 def _kpis(

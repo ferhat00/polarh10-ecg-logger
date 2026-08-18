@@ -241,7 +241,7 @@ def _persist(
         )
 
     _write_cache(session, result, sleep)
-    _write_report(session, rec, result, hrv_censored, analysis, resolved, flags)
+    _write_report(session, rec, result, hrv_censored, analysis, resolved, flags, sleep)
 
 
 def _build_extras(
@@ -393,6 +393,7 @@ def _write_report(
     analysis,
     resolved,
     flags,
+    sleep: SleepAnalysis | None = None,
 ) -> None:
     meta = ReportMeta(
         person_name=session.person.name,
@@ -403,5 +404,7 @@ def _write_report(
         file_sha256=session.file_sha256,
         reduced_confidence=result.correction.reduced_confidence,
     )
-    html = build_report_html(rec, result, hrv_censored, analysis, resolved, flags, meta)
+    html = build_report_html(
+        rec, result, hrv_censored, analysis, resolved, flags, meta, sleep=sleep
+    )
     report_path_for(session).write_text(html, encoding="utf-8")
