@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import numpy as np
 
+from app.pipeline.events import confirmed_ectopic_indices
 from app.pipeline.process import PipelineResult
 from app.pipeline.rr import RRSeries
-from app.pipeline.template import PREMATURITY_THRESHOLD_PCT
 from app.screening import thresholds as th
 from app.screening.cosen import cosen
 from app.screening.flags import ScreeningFlag
@@ -28,11 +28,14 @@ def run_screening(
     limits = limits or th.default_limits(athlete_baseline)
     flags: list[ScreeningFlag] = []
     flags += flag_sustained_hr(result.rr, limits)
+    # Confirmation runs over the *raw detected* train (see PipelineResult):
+    # the Kubios iterative pass repositions the beats it classifies ectopic,
+    # so prematurity measured on corrected peaks understates the signature.
     flags += flag_ectopy(
-        n_beats=len(result.peak_times_s),
+        n_beats=len(result.ectopy_prematurity_pct),
         ectopic_beat_indices=result.correction.ectopic_beat_indices,
-        prematurity_pct=result.morphology.prematurity_pct,
-        motion_explained=result.morphology.motion_explained,
+        prematurity_pct=result.ectopy_prematurity_pct,
+        motion_explained=result.ectopy_motion_mask,
     )
     flags += flag_irregularity(result.rr)
     return flags
@@ -167,17 +170,12 @@ def flag_ectopy(
     if n_beats == 0 or len(ectopic_beat_indices) == 0:
         return []
 
-    confirmed: list[int] = []
-    for i in np.asarray(ectopic_beat_indices, dtype=np.int64):
-        if i < 0 or i >= len(prematurity_pct):
-            continue
-        premature = (
-            not np.isnan(prematurity_pct[i])
-            and prematurity_pct[i] <= PREMATURITY_THRESHOLD_PCT
+    confirmed = [
+        int(i)
+        for i in confirmed_ectopic_indices(
+            n_beats, ectopic_beat_indices, prematurity_pct, motion_explained
         )
-        motion = bool(motion_explained[i]) if i < len(motion_explained) else False
-        if premature and not motion:
-            confirmed.append(int(i))
+    ]
 
     if not confirmed:
         return []
@@ -225,7 +223,7 @@ def _bigeminy_run(confirmed_sorted: list[int]) -> int:
     """Longest run of confirmed ectopics spaced exactly two beats apart."""
     best, run = 1, 1
     for a, b in zip(confirmed_sorted, confirmed_sorted[1:], strict=False):
-        run = run + 1 if b - a == 2 else 1
+        run = run + 1 if b - a == th.BIGEMINY_SPACING else 1
         best = max(best, run)
     return best if len(confirmed_sorted) else 0
 

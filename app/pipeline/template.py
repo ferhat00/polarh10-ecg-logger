@@ -124,6 +124,24 @@ def beat_morphology(
     )
 
 
+def prematurity_series(peak_indices: np.ndarray, fs_hz: float) -> np.ndarray:
+    """Public access to the per-beat prematurity computation.
+
+    Ectopy confirmation runs this over the *raw detected* peak train: the
+    Kubios iterative pass repositions the very beats it classifies ectopic,
+    so prematurity measured on corrected peaks systematically understates the
+    signature it is meant to confirm.
+    """
+    return _prematurity_pct(peak_indices, fs_hz)
+
+
+def motion_degraded(
+    peak_indices: np.ndarray, time_s: np.ndarray, quality: QualityResult
+) -> np.ndarray:
+    """Public access to the per-beat motion-degradation test."""
+    return _motion_explained(peak_indices, time_s, quality)
+
+
 def _prematurity_pct(peak_indices: np.ndarray, fs_hz: float) -> np.ndarray:
     """Preceding-RR deviation from the local median RR, as a percentage."""
     n = len(peak_indices)
