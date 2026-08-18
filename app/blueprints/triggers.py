@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.extensions import db
-from app.models import Person, Session, TriggerTag, session_trigger_tag, slugify
+from app.models import Person, Session, TriggerTag, slugify
 from app.processing import load_cached_events
 from app.triggers import figures as trigger_figures
 from app.triggers.seed import ensure_builtin_trigger_tags
@@ -98,28 +98,17 @@ def manage_tags() -> str | Response:
                 flash("Tag added.", "ok")
         return redirect(url_for("triggers.manage_tags"))
 
-    counts = dict(
-        db.session.execute(
-            select(
-                session_trigger_tag.c.trigger_tag_id,
-                func.count(session_trigger_tag.c.session_id),
-            ).group_by(session_trigger_tag.c.trigger_tag_id)
-        ).all()
-    )
     tags = db.session.scalars(
         select(TriggerTag).order_by(TriggerTag.is_builtin.desc(), TriggerTag.name)
     ).all()
+    counts = {tag.id: len(tag.sessions) for tag in tags}
     return render_template("triggers/tags.html", tags=tags, counts=counts)
 
 
 @bp.post("/tags/<int:tag_id>/delete")
 def delete_tag(tag_id: int) -> Response:
     tag = db.get_or_404(TriggerTag, tag_id)
-    in_use = db.session.scalar(
-        select(func.count())
-        .select_from(session_trigger_tag)
-        .where(session_trigger_tag.c.trigger_tag_id == tag.id)
-    )
+    in_use = len(tag.sessions)
     if tag.is_builtin:
         flash("Built-in tags cannot be deleted.", "error")
     elif in_use:
