@@ -79,8 +79,8 @@ def status() -> EngineStatus:
             available=False,
             unavailable_reason=(
                 f"{' and '.join(missing)} not installed — "
-                "pip install -r requirements-sleep.txt (TensorFlow on native "
-                "Windows may need WSL2; see docs/SLEEP.md)."
+                "pip install -r requirements-sleep.txt (CPU-only TensorFlow "
+                "is enough; see docs/SLEEP.md)."
             ),
         )
     return EngineStatus(key=ENGINE_KEY, label=ENGINE_LABEL, available=True)

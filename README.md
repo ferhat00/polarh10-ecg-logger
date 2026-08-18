@@ -2,8 +2,8 @@
 
 A local, offline Flask application for analysing raw ECG exports from a Polar H10
 chest strap: upload sessions recorded during different activities, get a per-session
-report on real ECG paper, screen for patterns worth noting, and compare sessions over
-time.
+report on real ECG paper, screen for patterns worth noting, analyse overnight
+recordings into sleep stages, and compare sessions over time.
 
 ## What this tool is — and is not
 
@@ -47,10 +47,14 @@ Data layout (all under `data/`, which is gitignored):
 ```
 data/app.db                                   SQLite database
 data/uploads/<person>/<id>__<name>.csv        the original upload, never overwritten
-data/uploads/<person>/<id>__<name>.npz        cached arrays (R-peaks, RR series, quality)
+data/uploads/<person>/<id>__acc__<name>.csv   optional accelerometer companion file
+data/uploads/<person>/<id>__<name>.npz        cached arrays (R-peaks, RR series, quality, sleep stages)
 data/uploads/<person>/<id>__<name>.report.html  the rendered report
 data/logs/<person>_history.md                 append-only decision log
 ```
+
+The default upload cap is 512 MB (`ECGLOG_MAX_UPLOAD_BYTES`) — an 8-hour
+overnight ECG export is ~135 MB.
 
 Deleting a person removes their database rows; their files under `data/` are retained
 on disk deliberately — delete those by hand if you mean to.
@@ -101,6 +105,36 @@ association-not-causation caveats. Sessions processed before this feature need o
 re-analysis (button on the session page) to populate their event data. The full
 literature grounding — device validation, algorithm choices, variability numbers,
 and the experiment designs worth copying — is in [`docs/RESEARCH.md`](docs/RESEARCH.md).
+
+## Sleep staging
+
+Record a whole night (start the strap at lights-off, stop it on getting up),
+upload it with the **Sleep (overnight)** activity, and the report gains a sleep
+section: hypnograms per staging engine, time in each stage, sleep efficiency,
+sleep-onset latency, WASO, awakenings, REM latency, per-stage HR/HRV, and —
+when several engines ran — their epoch-by-epoch agreement (Cohen's κ).
+Optionally attach the Polar Sensor Logger **accelerometer export** as a second
+file: movement sharpens wake detection (the weakest class for heart-beat-based
+staging) and draws a movement trace in the report.
+
+Three engines, in increasing setup cost:
+
+| Engine | Stages | Needs |
+| --- | --- | --- |
+| Built-in cited rules + smoothing | Wake/Light/Deep/REM | nothing — works offline out of the box |
+| SleepECG pre-trained GRU (MESA/SHHS) | Wake/REM/NREM | `pip install -r requirements-sleep.txt` (classifiers ship in the wheel; still fully offline) |
+| External 5-class deep net ([adammj/ecg-sleep-staging](https://github.com/adammj/ecg-sleep-staging)) | Wake/N1/N2/N3/REM | your own clone of that AGPL tool + two env vars — run over a subprocess boundary, never vendored |
+
+**Honesty first**: heart-beat-based staging is an estimate. The best published
+model validated on this exact strap — Sleep²/NUKKUAA (Topalidis et al. 2023,
+Sensors 23(5):2390; proprietary, so it cannot run here, but its 4-class
+convention and its numbers anchor this feature) — reaches 80.3 % epoch
+agreement (κ≈0.69) with laboratory polysomnography. Every hypnogram in the
+report carries its engine's accuracy note, every night carries a
+non-diagnostic disclaimer, and sleep sessions screen bradycardia at
+sleep-appropriate thresholds (nocturnal dipping is physiology, not a
+finding). The full literature grounding, per-engine setup, and limitations
+live in [`docs/SLEEP.md`](docs/SLEEP.md).
 
 ## Adding an activity profile
 
