@@ -53,6 +53,24 @@ def _night_acc_bytes() -> bytes:
     )
 
 
+@pytest.fixture(autouse=True)
+def heuristic_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin these tests to the always-available engine so they are identical
+    with and without the optional sleepecg/TensorFlow extras installed."""
+    from app.sleep.engines import EngineStatus, sleepecg_engine
+
+    monkeypatch.setattr(
+        sleepecg_engine,
+        "status",
+        lambda: EngineStatus(
+            sleepecg_engine.ENGINE_KEY,
+            sleepecg_engine.ENGINE_LABEL,
+            False,
+            "disabled in this test",
+        ),
+    )
+
+
 @pytest.fixture()
 def person(app: Flask) -> Person:
     p = Person(name="Sleeper", slug="sleeper")

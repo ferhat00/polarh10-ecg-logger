@@ -226,5 +226,17 @@ def _run_optional_engines(
     ctx: PersonContext,
     config: Mapping,
 ) -> None:
-    """Optional engines land here as they are implemented (sleepecg,
-    external deep net); each reports an EngineStatus even when absent."""
+    """Optional engines: each reports an EngineStatus even when absent."""
+    from app.sleep.engines import sleepecg_engine
+
+    _run_engine(
+        analysis,
+        sleepecg_engine.status(),
+        lambda: sleepecg_engine.stage_sleepecg(
+            result.peak_times_s,
+            rec.start_time,
+            rec.duration_s,
+            ctx,
+            ctx.sex,
+        ),
+    )

@@ -48,6 +48,8 @@ class PersonContext:
     age_years: float | None = None
     max_hr_bpm: int | None = None
     resting_hr_bpm: int | None = None
+    #: "male"/"female"/None — only ever a sleep-classifier covariate.
+    sex: str | None = None
 
     #: Fallback when neither a measured max HR nor an age is available.
     DEFAULT_MAX_HR = 185.0
@@ -95,6 +97,7 @@ class PersonContext:
             age_years=age,
             max_hr_bpm=getattr(person, "max_hr_bpm", None),
             resting_hr_bpm=getattr(person, "resting_hr_bpm", None),
+            sex=getattr(person, "sex", None),
         )
 
 
