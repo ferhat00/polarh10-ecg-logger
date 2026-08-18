@@ -99,7 +99,9 @@ def stage_sleepecg(
     the recording clock). Output lands on the canonical epoch grid; epochs
     beyond what the classifier scored are UNSCORED.
     """
-    import sleepecg  # lazy: pulls TensorFlow via the classifier below
+    # Lazy import (pulls TensorFlow via the classifier below); intentionally
+    # optional, guarded by status() — hence the pylint suppression.
+    import sleepecg  # pylint: disable=import-error
 
     grid = make_epoch_grid(duration_s)
     n_epochs = len(grid)
@@ -160,7 +162,7 @@ def _subject_data(
     become NaN features the model was trained to tolerate (``max_nans``),
     at some accuracy cost — said out loud in the notes.
     """
-    import sleepecg
+    import sleepecg  # pylint: disable=import-error
 
     age = None
     if ctx is not None and ctx.age_years is not None:

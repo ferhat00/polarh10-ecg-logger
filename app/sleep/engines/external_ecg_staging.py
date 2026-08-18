@@ -157,7 +157,8 @@ def export_input_h5(
     out_path: Path,
 ) -> tuple[int, list[str]]:
     """Write the tool's input file; returns (n complete epochs, notes)."""
-    import h5py
+    # Optional dependency (requirements-sleep.txt), guarded by status().
+    import h5py  # pylint: disable=import-error
 
     notes: list[str] = []
     x = preprocess_ecg(ecg_mv, fs_hz, peak_times_s)
@@ -194,7 +195,7 @@ def export_input_h5(
 
 def parse_results_h5(path: Path, n_epochs: int) -> np.ndarray:
     """Stage codes from the tool's results file (AASM_5 order)."""
-    import h5py
+    import h5py  # pylint: disable=import-error
 
     with h5py.File(path, "r") as f:
         available = list(f.keys())
