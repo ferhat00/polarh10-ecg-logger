@@ -9,6 +9,7 @@ numpy>=1.26,<3
 scipy>=1.11
 pandas>=2.1
 matplotlib>=3.8
+statsmodels>=0.14  # negative-binomial trigger inference (app/triggers/stats.py)
 
 # ECG engines: neurokit2 primary, biosppy fallback
 neurokit2>=0.2.7
