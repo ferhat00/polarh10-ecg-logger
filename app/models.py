@@ -17,7 +17,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, ForeignKey, String, Table, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
@@ -89,6 +89,44 @@ class ActivityType(db.Model):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<ActivityType {self.name!r} -> {self.profile_key!r}>"
+
+
+#: Sessions ↔ trigger tags. Plain association table: the pairing carries no
+#: data of its own, and SQLAlchemy cleans its rows up on either side's delete.
+session_trigger_tag = Table(
+    "session_trigger_tag",
+    db.metadata,
+    Column("session_id", ForeignKey("session.id"), primary_key=True),
+    Column("trigger_tag_id", ForeignKey("trigger_tag.id"), primary_key=True),
+)
+
+
+class TriggerTag(db.Model):
+    """A candidate trigger/exposure a session can be tagged with.
+
+    Tags describe exposures in the hours before or during a recording
+    (caffeine, alcohol, poor sleep, ...) so ectopy statistics can group
+    sessions by exposure. The built-in vocabulary is seeded from the
+    self-selected trigger menus of the I-STOP-AFib and CRAVE trials
+    (``app.triggers.vocabulary``); custom tags are one row with
+    ``is_builtin=False``, mirroring the ActivityType pattern. The slug is the
+    stable statistics key — renaming a tag never orphans its history.
+    """
+
+    __tablename__ = "trigger_tag"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), unique=True)
+    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    is_builtin: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+
+    sessions: Mapped[list[Session]] = relationship(
+        secondary=session_trigger_tag, back_populates="trigger_tags"
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<TriggerTag {self.slug!r}>"
 
 
 class ProcessingStatus:
@@ -168,6 +206,11 @@ class Session(db.Model):
     excluded_segments: Mapped[list[ExcludedSegment]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
+    trigger_tags: Mapped[list[TriggerTag]] = relationship(
+        secondary=session_trigger_tag,
+        back_populates="sessions",
+        order_by="TriggerTag.name",
+    )
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Session {self.id} person={self.person_id} status={self.processing_status}>"
@@ -214,6 +257,21 @@ class Metrics(db.Model):
     sd1_sd2_ratio: Mapped[float | None] = mapped_column(default=None)
     sample_entropy: Mapped[float | None] = mapped_column(default=None)
     dfa_alpha1: Mapped[float | None] = mapped_column(default=None)
+
+    # Ectopy burden (confirmed ectopic beats; app.pipeline.events).
+    # NULL on all of these means the session was processed before the events
+    # pipeline existed and needs a reprocess to populate them. Real columns,
+    # not extras keys, because trigger statistics group and filter on them.
+    ectopy_beats_n: Mapped[int | None] = mapped_column(default=None)
+    #: Confirmed ectopics per hour of *analysed* time.
+    ectopy_per_hour: Mapped[float | None] = mapped_column(default=None)
+    ectopy_pct_beats: Mapped[float | None] = mapped_column(default=None)
+    single_n: Mapped[int | None] = mapped_column(default=None)
+    couplet_n: Mapped[int | None] = mapped_column(default=None)
+    run_n: Mapped[int | None] = mapped_column(default=None)
+    longest_run_beats: Mapped[int | None] = mapped_column(default=None)
+    bigeminy_episode_n: Mapped[int | None] = mapped_column(default=None)
+    trigeminy_episode_n: Mapped[int | None] = mapped_column(default=None)
 
     #: Activity-specific derived metrics and per-window series.
     extras: Mapped[dict | None] = mapped_column(JSON, default=None)
