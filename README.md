@@ -23,6 +23,10 @@ All health data stays local: SQLite on disk, uploaded CSVs on the local filesyst
 external API calls, no telemetry, no CDN assets. The app works fully offline (fonts
 and all frontend assets are vendored).
 
+The literature review behind the ectopy-statistics feature — device validation,
+detection algorithms at 130 Hz, burden variability, trigger epidemiology, and the
+statistical design — lives in [`docs/RESEARCH.md`](docs/RESEARCH.md).
+
 ## Setup
 
 Requires Python 3.12 (the signal-processing stack is not yet reliable on 3.14).
