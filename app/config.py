@@ -27,8 +27,22 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
 
-    #: An 18-minute 130 Hz export is ~5 MB; 128 MB allows multi-hour records.
-    MAX_CONTENT_LENGTH: int = int(os.environ.get("ECGLOG_MAX_UPLOAD_BYTES", 128 * 1024 * 1024))
+    #: An 18-minute 130 Hz export is ~5 MB and a full 8 h night ~135 MB;
+    #: 512 MB leaves headroom for overnight ECG + accelerometer uploads.
+    MAX_CONTENT_LENGTH: int = int(os.environ.get("ECGLOG_MAX_UPLOAD_BYTES", 512 * 1024 * 1024))
+
+    # --- Optional external sleep-staging engine (adammj/ecg-sleep-staging) --
+    #: The external 5-class engine is AGPL-licensed and therefore never
+    #: vendored or imported: when these point at the user's own clone and its
+    #: Python interpreter, the engine runs as a subprocess (see
+    #: app/sleep/engines/external_ecg_staging.py). Unset = engine unavailable.
+    SLEEP_EXTERNAL_DIR: str | None = os.environ.get("ECGLOG_SLEEP_EXTERNAL_DIR")
+    SLEEP_EXTERNAL_PYTHON: str | None = os.environ.get("ECGLOG_SLEEP_EXTERNAL_PYTHON")
+    #: Hard wall-clock limit for one external scoring run (an 8 h night on
+    #: CPU takes minutes, not hours).
+    SLEEP_EXTERNAL_TIMEOUT_S: int = int(
+        os.environ.get("ECGLOG_SLEEP_EXTERNAL_TIMEOUT_S", 1800)
+    )
 
     @property
     def UPLOAD_DIR(self) -> Path:  # noqa: N802 - Flask config naming convention

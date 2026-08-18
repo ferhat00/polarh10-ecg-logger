@@ -90,10 +90,22 @@ def upload() -> str | Response:
         if upload_file is None or not upload_file.filename:
             errors.append("Choose a CSV file to upload.")
 
+        acc_file = request.files.get("acc_file")
+        acc_payload: bytes | None = None
+        if acc_file is not None and acc_file.filename:
+            acc_payload = acc_file.read()
+            if not acc_payload:
+                errors.append("The accelerometer file is empty.")
+
         if not errors:
             payload = upload_file.read()
             if not payload:
                 errors.append("The file is empty.")
+            elif acc_payload is not None and acc_payload == payload:
+                errors.append(
+                    "The accelerometer file is identical to the ECG file — "
+                    "it looks like the ECG export was attached twice."
+                )
 
         if errors:
             for e in errors:
@@ -132,6 +144,14 @@ def upload() -> str | Response:
         stored = upload_dir / f"{session.id}__{original_name}"
         stored.write_bytes(payload)  # path embeds the unique id: never overwrites
         session.stored_path = str(stored)
+
+        if acc_payload is not None:
+            acc_name = _SAFE_NAME_RE.sub("_", Path(acc_file.filename).name)
+            acc_stored = upload_dir / f"{session.id}__acc__{acc_name}"
+            acc_stored.write_bytes(acc_payload)
+            session.acc_original_filename = acc_name
+            session.acc_stored_path = str(acc_stored)
+            session.acc_file_sha256 = hashlib.sha256(acc_payload).hexdigest()
         db.session.commit()
 
         submit_processing(current_app._get_current_object(), session.id)

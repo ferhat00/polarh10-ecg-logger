@@ -34,6 +34,7 @@ from app.pipeline.hrv import HRVResult
 from app.pipeline.process import PipelineResult, run_pipeline
 from app.report.render import ReportMeta, build_report_html
 from app.screening.rules import run_screening
+from app.sleep.orchestrator import SleepAnalysis, run_sleep_analysis
 
 
 def submit_processing(app: Flask, session_id: int) -> None:
@@ -72,7 +73,26 @@ def _process(app: Flask, session_id: int) -> None:
             )
             rec = load_polar_csv(session.stored_path, overrides=overrides)
             result = run_pipeline(rec)
-            _persist(session, rec, result)
+
+            # Sleep staging is a processing step, gated on the profile: it
+            # needs the recording start time, the R-peak train, the raw ECG,
+            # the optional ACC file, and app config — none of which belong
+            # in the profiles' ActivityInputs slice.
+            sleep: SleepAnalysis | None = None
+            resolved_gate = (
+                resolve_profile(session.activity_type) if session.activity_type else None
+            )
+            if resolved_gate is not None and resolved_gate.profile.requests_sleep_staging:
+                sleep = run_sleep_analysis(
+                    rec,
+                    result,
+                    session.acc_stored_path,
+                    PersonContext.from_person(session.person),
+                    app.config,
+                    stored_path=session.stored_path,
+                )
+
+            _persist(session, rec, result, sleep)
             session.processing_status = ProcessingStatus.DONE
             # Refresh relationships so the log entry sees this run's rows.
             db.session.flush()
@@ -93,7 +113,12 @@ def _process(app: Flask, session_id: int) -> None:
         db.session.commit()
 
 
-def _persist(session: Session, rec: LoadedRecording, result: PipelineResult) -> None:
+def _persist(
+    session: Session,
+    rec: LoadedRecording,
+    result: PipelineResult,
+    sleep: SleepAnalysis | None = None,
+) -> None:
     """Store DB rows, the .npz cache, and the rendered report."""
     person = session.person
     ctx = PersonContext.from_person(person)
@@ -138,6 +163,17 @@ def _persist(session: Session, rec: LoadedRecording, result: PipelineResult) -> 
         db.session.delete(old_seg)
     db.session.flush()
 
+    # Sleep results are dropped (with the reason recorded) when the profile
+    # declared the whole session not analysable — stage fractions from a
+    # mostly-excluded night would be misleading, not merely imprecise.
+    sleep_extras: dict | None = None
+    if sleep is not None and analysis.not_analysable:
+        sleep_extras = {"skipped_reason": analysis.not_analysable_reason}
+        sleep = None
+    elif sleep is not None:
+        sleep_extras = sleep.as_extras()
+    primary_sleep = sleep.primary_summary() if sleep is not None else None
+
     h = hrv_censored
     ev = result.events
     metrics = Metrics(
@@ -168,7 +204,21 @@ def _persist(session: Session, rec: LoadedRecording, result: PipelineResult) -> 
         longest_run_beats=ev.longest_run_beats if ev else None,
         bigeminy_episode_n=ev.bigeminy_episodes if ev else None,
         trigeminy_episode_n=ev.trigeminy_episodes if ev else None,
-        extras=_build_extras(result, hrv_censored, analysis),
+        # Sleep architecture from the primary staging engine (sleep sessions
+        # only). Stage minutes stay NULL when the engine's vocabulary cannot
+        # distinguish them — never invented.
+        tst_min=primary_sleep.tst_min if primary_sleep else None,
+        sleep_efficiency_pct=(
+            primary_sleep.sleep_efficiency_pct if primary_sleep else None
+        ),
+        sol_min=primary_sleep.sol_min if primary_sleep else None,
+        waso_min=primary_sleep.waso_min if primary_sleep else None,
+        light_min=primary_sleep.light_min if primary_sleep else None,
+        deep_min=primary_sleep.deep_min if primary_sleep else None,
+        rem_min=primary_sleep.rem_min if primary_sleep else None,
+        awakenings_n=primary_sleep.awakenings_n if primary_sleep else None,
+        sleep_engine=sleep.primary_engine if sleep is not None else None,
+        extras=_build_extras(result, hrv_censored, analysis, sleep_extras),
     )
     db.session.add(metrics)
 
@@ -191,17 +241,18 @@ def _persist(session: Session, rec: LoadedRecording, result: PipelineResult) -> 
             )
         )
 
-    _write_cache(session, result)
-    _write_report(session, rec, result, hrv_censored, analysis, resolved, flags)
+    _write_cache(session, result, sleep)
+    _write_report(session, rec, result, hrv_censored, analysis, resolved, flags, sleep)
 
 
 def _build_extras(
-    result: PipelineResult, hrv: HRVResult, analysis
+    result: PipelineResult, hrv: HRVResult, analysis, sleep_extras: dict | None = None
 ) -> dict:
     sqi_values = [
         w.sqi_mean for w in result.quality.windows if not np.isnan(w.sqi_mean)
     ]
     return {
+        "sleep": sleep_extras,
         "sqi_mean": float(np.mean(sqi_values)) if sqi_values else None,
         "resting_hr_bpm": lowest_sustained_hr(result.rr),
         "activity": analysis.extras,
@@ -245,22 +296,43 @@ def _ectopy_extras(result: PipelineResult) -> dict | None:
 
 
 #: Bumped when the cache gains arrays newer code depends on. Version 2 added
-#: the morphology and ectopy-event arrays; caches without a version predate
-#: them and load_cached_events() returns None so the UI can offer a reprocess.
-CACHE_VERSION = 2
+#: the morphology and ectopy-event arrays; version 3 adds the sleep-staging
+#: and accelerometer arrays (present only on sleep sessions). Caches without
+#: a version predate the events pipeline and load_cached_events() returns
+#: None so the UI can offer a reprocess.
+CACHE_VERSION = 3
 
 
-def _write_cache(session: Session, result: PipelineResult) -> None:
+def _write_cache(
+    session: Session, result: PipelineResult, sleep: SleepAnalysis | None = None
+) -> None:
     """Processed arrays next to the CSV — comparison views read these.
 
     Index conventions: ``morph_*`` arrays align with the *corrected* peak
     train (``peaks_corrected``); the ectopy confirmation/event arrays align
     with the *raw detected* train (``rpeak_indices``) — see PipelineResult.
+    Sleep arrays (``sleep_*``, ``acc_*``) exist only for sleep sessions.
     """
     ev = result.events
     events = ev.events if ev else []
+
+    sleep_arrays: dict[str, np.ndarray] = {}
+    if sleep is not None and sleep.hypnograms:
+        sleep_arrays["sleep_epoch_start_s"] = sleep.hypnograms[0].epoch_start_s
+        for hyp in sleep.hypnograms:
+            key = hyp.engine.replace("-", "_")
+            sleep_arrays[f"sleep_stages_{key}"] = hyp.stages
+            sleep_arrays[f"sleep_vocab_{key}"] = np.array([hyp.vocab.value])
+            if hyp.probabilities is not None:
+                sleep_arrays[f"sleep_probs_{key}"] = hyp.probabilities
+    if sleep is not None and sleep.acc_epochs is not None:
+        sleep_arrays["acc_epoch_start_s"] = sleep.acc_epochs.epoch_start_s
+        sleep_arrays["acc_counts"] = sleep.acc_epochs.counts
+        sleep_arrays["acc_coverage"] = sleep.acc_epochs.coverage
+
     np.savez_compressed(
         cache_path_for(session),
+        **sleep_arrays,
         rpeak_indices=result.detection.rpeak_indices,
         peaks_corrected=result.correction.peaks_corrected,
         peak_times_s=result.peak_times_s,
@@ -322,6 +394,7 @@ def _write_report(
     analysis,
     resolved,
     flags,
+    sleep: SleepAnalysis | None = None,
 ) -> None:
     meta = ReportMeta(
         person_name=session.person.name,
@@ -332,5 +405,7 @@ def _write_report(
         file_sha256=session.file_sha256,
         reduced_confidence=result.correction.reduced_confidence,
     )
-    html = build_report_html(rec, result, hrv_censored, analysis, resolved, flags, meta)
+    html = build_report_html(
+        rec, result, hrv_censored, analysis, resolved, flags, meta, sleep=sleep
+    )
     report_path_for(session).write_text(html, encoding="utf-8")

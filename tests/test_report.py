@@ -169,3 +169,114 @@ class TestSuppressedReport:
         )
         assert "Suppressed for this activity" in html
         assert "heart-rate" in html and "reserve" in html
+
+
+class TestSleepSection:
+    def _sleep_analysis(self):
+        import numpy as np
+
+        from app.sleep.actigraphy import AccEpochs
+        from app.sleep.agreement import pairwise_agreement
+        from app.sleep.orchestrator import SleepAnalysis
+        from app.sleep.stages import EPOCH_LEN_S, Hypnogram, StageVocab
+        from app.sleep.summary import summarize
+
+        n = 80
+        stages = np.array([0] * 4 + [1] * 30 + [2] * 20 + [3] * 20 + [1] * 6, dtype=np.int8)
+        grid = np.arange(n) * EPOCH_LEN_S
+        hyps = [
+            Hypnogram(
+                engine="heuristic",
+                engine_label="Built-in rules (cardio-actigraphy)",
+                vocab=StageVocab.WAKE_LIGHT_DEEP_REM,
+                epoch_len_s=EPOCH_LEN_S,
+                epoch_start_s=grid,
+                stages=stages,
+                probabilities=None,
+                accuracy_note="Rule-based estimate: roughly 65-75% epoch agreement.",
+            ),
+            Hypnogram(
+                engine="sleepecg",
+                engine_label="SleepECG GRU (wrn-gru-mesa)",
+                vocab=StageVocab.WAKE_REM_NREM,
+                epoch_len_s=EPOCH_LEN_S,
+                epoch_start_s=grid,
+                stages=np.array([0] * 4 + [1] * 50 + [2] * 20 + [1] * 6, dtype=np.int8),
+                probabilities=None,
+                accuracy_note="GRU trained on MESA.",
+            ),
+        ]
+        analysis = SleepAnalysis(hypnograms=hyps)
+        analysis.summaries = {h.engine: summarize(h) for h in hyps}
+        analysis.primary_engine = "sleepecg"
+        analysis.agreement = pairwise_agreement(hyps)
+        analysis.acc_epochs = AccEpochs(
+            epoch_start_s=grid,
+            counts=np.abs(np.sin(np.arange(n))) * 10.0,
+            coverage=np.ones(n),
+            threshold=8.0,
+        )
+        analysis.override_epochs_n = {"heuristic": 2, "sleepecg": 2}
+        from app.sleep.engines import EngineStatus
+
+        analysis.engines = [
+            EngineStatus("heuristic", "Built-in rules", True),
+            EngineStatus("sleepecg", "SleepECG GRU", True),
+            EngineStatus(
+                "external-5class", "External deep net", False,
+                "ECGLOG_SLEEP_EXTERNAL_DIR is not set",
+            ),
+        ]
+        return analysis
+
+    def test_sleep_section_rendered(self, rendered: dict) -> None:
+        html = build_report_html(
+            rendered["rec"],
+            rendered["result"],
+            rendered["hrv"],
+            rendered["analysis"],
+            None,
+            [],
+            rendered["meta"],
+            sleep=self._sleep_analysis(),
+        )
+        assert "Hypnogram" in html
+        assert "substitute for a sleep study" in html
+        assert "Engine agreement" in html
+        assert "heuristic vs sleepecg" in html
+        assert "ECGLOG_SLEEP_EXTERNAL_DIR is not set" in html
+        assert "Sleep efficiency" in html
+        # Movement figure present (ACC provided).
+        assert "wake-override threshold" in html or "Accelerometer activity" in html
+
+    def test_no_sleep_section_without_sleep(self, rendered: dict) -> None:
+        assert "Hypnogram" not in rendered["html"]
+        assert "Sleep efficiency" not in rendered["html"]
+
+
+class TestFigureDecimation:
+    def test_minmax_decimation_preserves_envelope(self) -> None:
+        import numpy as np
+
+        from app.report.figures import _minmax_decimate
+
+        t = np.arange(50_000, dtype=float)
+        y = np.sin(t / 100.0)
+        y[12_345] = 99.0  # a single extreme beat must survive decimation
+        y[40_000] = -55.0
+        t2, y2 = _minmax_decimate(t, y, 4000)
+        assert len(t2) <= 4000
+        assert 99.0 in y2
+        assert -55.0 in y2
+        assert np.all(np.diff(t2) >= 0)
+
+    def test_short_series_untouched(self) -> None:
+        import numpy as np
+
+        from app.report.figures import _minmax_decimate
+
+        t = np.arange(100, dtype=float)
+        y = t * 2.0
+        t2, y2 = _minmax_decimate(t, y, 4000)
+        assert np.array_equal(t, t2)
+        assert np.array_equal(y, y2)

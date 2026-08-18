@@ -40,6 +40,36 @@ MM_PER_MV = 10.0
 _DPI = 150
 _MM_PER_INCH = 25.4
 
+#: Overnight recordings would otherwise put ~35k line points / scatter dots
+#: into one PNG; beyond these caps the figures decimate (and say so).
+HR_MAX_PLOT_POINTS = 4000
+POINCARE_MAX_PAIRS = 10000
+TEMPLATE_MAX_OUTLIERS = 60
+
+
+def _minmax_decimate(
+    t: np.ndarray, y: np.ndarray, max_points: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Bin to ≤max_points keeping each bin's min AND max — the envelope of
+    the trace is preserved exactly, unlike naive subsampling."""
+    n = len(t)
+    if n <= max_points:
+        return t, y
+    n_bins = max_points // 2
+    edges = np.linspace(0, n, n_bins + 1).astype(int)
+    out_t: list[float] = []
+    out_y: list[float] = []
+    for lo, hi in zip(edges[:-1], edges[1:], strict=True):
+        if hi <= lo:
+            continue
+        seg = y[lo:hi]
+        i_min = lo + int(np.argmin(seg))
+        i_max = lo + int(np.argmax(seg))
+        for i in sorted((i_min, i_max)):
+            out_t.append(float(t[i]))
+            out_y.append(float(y[i]))
+    return np.array(out_t), np.array(out_y)
+
 
 @dataclass
 class Figure:
@@ -185,7 +215,9 @@ def hr_timeseries(
 
     t_min = rr.t_s / 60.0
     hr = 60000.0 / rr.rr_ms
-    ax.plot(t_min, hr, color=INK, lw=0.7, alpha=0.85)
+    decimated = len(t_min) > HR_MAX_PLOT_POINTS
+    t_plot, hr_plot = _minmax_decimate(t_min, hr, HR_MAX_PLOT_POINTS)
+    ax.plot(t_plot, hr_plot, color=INK, lw=0.7, alpha=0.85)
 
     if len(rr) >= 30:
         coeffs = np.polyfit(t_min, hr, 1)
@@ -207,11 +239,16 @@ def hr_timeseries(
     ax.set_ylabel("bpm")
     ax.grid(color=GRID_SMALL, lw=0.4)
     fig.tight_layout()
-    return _finish(
-        fig,
+    caption = (
         "Heart rate across the session with least-squares trend. "
-        "Shaded spans are excluded time (reported, never interpolated).",
+        "Shaded spans are excluded time (reported, never interpolated)."
     )
+    if decimated:
+        caption += (
+            " Long recording: the trace is min/max-decimated per time bin, "
+            "so every extreme beat remains visible."
+        )
+    return _finish(fig, caption)
 
 
 def poincare(rr: RRSeries, hrv: HRVResult) -> Figure | None:
@@ -223,6 +260,12 @@ def poincare(rr: RRSeries, hrv: HRVResult) -> Figure | None:
     y = rr.rr_ms[1:][keep]
     if len(x) < 10:
         return None
+    sampled = len(x) > POINCARE_MAX_PAIRS
+    if sampled:
+        # Deterministic thinning; SD1/SD2 in the caption still come from the
+        # full series via HRVResult.
+        step = int(np.ceil(len(x) / POINCARE_MAX_PAIRS))
+        x, y = x[::step], y[::step]
 
     fig, ax = plt.subplots(figsize=(3.6, 3.6), dpi=_DPI)
     fig.patch.set_facecolor(PAPER)
@@ -254,7 +297,13 @@ def poincare(rr: RRSeries, hrv: HRVResult) -> Figure | None:
         else ""
     )
     fig.tight_layout()
-    return _finish(fig, f"Poincaré plot with SD1/SD2 ellipse. {sd_txt}")
+    caption = f"Poincaré plot with SD1/SD2 ellipse. {sd_txt}"
+    if sampled:
+        caption += (
+            f" (Long recording: {POINCARE_MAX_PAIRS:,}-pair sample plotted; "
+            "SD1/SD2 use every interval.)"
+        )
+    return _finish(fig, caption)
 
 
 def rr_histogram(rr: RRSeries) -> Figure | None:
@@ -368,7 +417,14 @@ def beat_template(
             ax.plot(morph.template_t_ms, w, color=INK, lw=0.4, alpha=0.12, zorder=1)
 
     outliers = np.flatnonzero(morph.outlier_mask)
-    for i in outliers:
+    outliers_capped = len(outliers) > TEMPLATE_MAX_OUTLIERS
+    plotted_outliers = outliers
+    if outliers_capped:
+        # Worst first (lowest correlation) so the cap keeps the most
+        # informative beats.
+        order = np.argsort(morph.correlations[outliers])
+        plotted_outliers = outliers[order][:TEMPLATE_MAX_OUTLIERS]
+    for i in plotted_outliers:
         w = beat_window(int(i))
         if w is not None:
             ax.plot(morph.template_t_ms, w, color=WARN, lw=0.9, alpha=0.7, zorder=3)
@@ -392,6 +448,11 @@ def beat_template(
         f"quality, {int(np.sum(morph.ectopy_candidate))} premature ectopy "
         "candidate(s)." if len(outliers) else "."
     )
+    if outliers_capped:
+        caption += (
+            f" Only the {TEMPLATE_MAX_OUTLIERS} lowest-correlation outliers "
+            "are drawn."
+        )
     return _finish(fig, caption)
 
 

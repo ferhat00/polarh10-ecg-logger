@@ -448,6 +448,21 @@ def _candidate_datetime(first_ns: int, epoch: str) -> dt.datetime | None:
         return None
 
 
+def plausible_epoch_interpretations(
+    first_ns: int, now: dt.datetime
+) -> dict[str, dt.datetime]:
+    """Epoch interpretations of a nanosecond timestamp that land in the
+    plausible date window (2010 .. now+2 days). Shared by the ECG and ACC
+    loaders so both apply the identical plausibility rule."""
+    latest = now + dt.timedelta(days=2)
+    candidates: dict[str, dt.datetime] = {}
+    for epoch in ("unix", "polar2000"):
+        candidate = _candidate_datetime(first_ns, epoch)
+        if candidate is not None and PLAUSIBLE_EARLIEST <= candidate <= latest:
+            candidates[epoch] = candidate
+    return candidates
+
+
 def _filename_date(filename: str) -> dt.date | None:
     for m in _FILENAME_DATE_RE.finditer(filename):
         try:
@@ -483,12 +498,7 @@ def _detect_epoch(
         )
         return overrides.epoch, chosen
 
-    latest = now + dt.timedelta(days=2)
-    candidates: dict[str, dt.datetime] = {}
-    for epoch in ("unix", "polar2000"):
-        candidate = _candidate_datetime(first_ns, epoch)
-        if candidate is not None and PLAUSIBLE_EARLIEST <= candidate <= latest:
-            candidates[epoch] = candidate
+    candidates = plausible_epoch_interpretations(first_ns, now)
 
     file_date = _filename_date(filename)
 

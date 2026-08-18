@@ -1,0 +1,12 @@
+# Optional sleep-staging extras. The app runs fully without these — the
+# built-in heuristic engine needs nothing beyond requirements.txt. Installing
+# this file enables the SleepECG pre-trained classifier engine and the h5
+# exchange used by the optional external 5-class engine (docs/SLEEP.md).
+#
+# TensorFlow note: any TF >= 2.16 variant works; tensorflow-cpu is the small
+# one and is all inference needs. On native Windows this installs Intel's
+# CPU-only tensorflow-intel wheel, which works fine — WSL2 is only needed
+# for GPU support, which staging does not need (details in docs/SLEEP.md).
+sleepecg>=0.5.9        # BSD-3; classifiers ship inside the wheel (offline)
+tensorflow-cpu>=2.16   # sleepecg inference backend
+h5py>=3.10             # input/results exchange with the external engine

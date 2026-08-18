@@ -96,3 +96,41 @@ class TestWindowLookup:
         assert not q.is_excluded_at(5.0)
         w = q.window_at(25.0)
         assert w is not None and w.excluded
+
+
+class TestRateDriftRobustness:
+    """The SQI must not exclude clean signal whose rate drifts with sleep
+    stage (the averageQRS global template penalises rate-atypical beats;
+    the chunked local-template pass rescues them)."""
+
+    def _two_rate_ecg(self, with_noise_burst: bool = False):
+        # 12 min at 55 bpm then 4 min at 72 bpm — clean throughout.
+        rr = np.concatenate(
+            [_steady_rr(duration_s=720.0, rr_ms=1090.0),
+             _steady_rr(duration_s=240.0, rr_ms=833.0)]
+        )
+        t, ecg, _ = build_ecg_from_rr(rr)
+        ecg = ecg.copy()
+        if with_noise_burst:
+            rng = np.random.default_rng(9)
+            burst = (t >= 800.0) & (t < 830.0)
+            # Unambiguous electrode garbage: amplitude beyond the plausible
+            # chest-strap range plus template-free shape. (Moderate noise
+            # near the SQI threshold has always been a partial exclusion —
+            # that behaviour predates the chunked-SQI change.)
+            ecg[burst] = rng.normal(0.0, 2.0, int(np.sum(burst)))
+        return t, ecg
+
+    def test_clean_rate_change_not_excluded(self) -> None:
+        t, ecg = self._two_rate_ecg()
+        q = _run(t, ecg)
+        # The faster block (720 s onward) must not be thrown away.
+        late_excluded = sum(
+            e - s for s, e, _ in q.excluded_segments if s >= 700.0
+        )
+        assert late_excluded <= 15.0, q.excluded_segments
+
+    def test_noise_burst_still_excluded(self) -> None:
+        t, ecg = self._two_rate_ecg(with_noise_burst=True)
+        q = _run(t, ecg)
+        assert q.is_excluded_at(815.0)

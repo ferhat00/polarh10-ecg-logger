@@ -103,6 +103,21 @@
               {% endif %}
               </td></tr>
           {% endif %}
+          {% if session.metrics and session.metrics.sleep_engine %}
+          <tr><th>Sleep</th>
+              <td class="num">
+                TST {{ "%.0f"|format(session.metrics.tst_min) }} min ·
+                efficiency {{ "%.0f%%"|format(session.metrics.sleep_efficiency_pct) }}
+                {% if session.metrics.deep_min is not none %} · deep {{ "%.0f"|format(session.metrics.deep_min) }} min{% endif %}
+                {% if session.metrics.rem_min is not none %} · REM {{ "%.0f"|format(session.metrics.rem_min) }} min{% endif %}
+                <span class="hint">engine: {{ session.metrics.sleep_engine }} — estimate, see report</span>
+              </td></tr>
+          {% endif %}
+          {% if session.acc_stored_path %}
+          <tr><th>Accelerometer</th>
+              <td class="num">{{ session.acc_original_filename }}
+              <span class="badge">ACC attached</span></td></tr>
+          {% endif %}
           <tr><th>Beats corrected</th><td class="num">{{ "%.2f%%"|format(session.beats_corrected_pct or 0) }}</td></tr>
           <tr><th>Engine</th><td class="num">{{ session.engine_used }}</td></tr>
           <tr><th>Unit / epoch detected</th><td class="num">{{ session.ecg_unit_detected }} / {{ session.epoch_detected }}</td></tr>

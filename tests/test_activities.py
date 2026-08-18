@@ -31,6 +31,7 @@ BUILTIN_KEYS = {
     "cycling",
     "swimming",
     "recovery",
+    "sleep",
 }
 
 
@@ -93,7 +94,7 @@ def _inputs(rr: RRSeries, excluded_s: float = 0.0, markers=None) -> ActivityInpu
 
 
 class TestRegistry:
-    def test_all_eight_builtins_registered(self) -> None:
+    def test_all_builtins_registered(self) -> None:
         assert set(all_profiles()) == BUILTIN_KEYS
 
     def test_only_supine_is_reference_baseline(self) -> None:
@@ -292,9 +293,9 @@ class TestDerivedMetrics:
 
 
 class TestActivityTypeResolution:
-    def test_seed_creates_eight_builtins(self, app: Flask) -> None:
+    def test_seed_creates_all_builtins(self, app: Flask) -> None:
         added = ensure_builtin_activity_types()
-        assert added == 8
+        assert added == len(BUILTIN_KEYS)
         assert ensure_builtin_activity_types() == 0  # idempotent
 
     def test_custom_activity_inherits_with_overrides(self, app: Flask) -> None:
@@ -383,3 +384,40 @@ def test_hrv_result_type_alias() -> None:
     for fields in _FAMILY_FIELDS.values():
         for name in fields:
             assert hasattr(hrv, name), f"HRVResult no longer has {name}"
+
+
+class TestSleepProfile:
+    def test_sleep_profile_declares_staging(self) -> None:
+        sleep = get_profile("sleep")
+        assert sleep.requests_sleep_staging is True
+        # No other builtin requests staging.
+        others = [p for k, p in all_profiles().items() if k != "sleep"]
+        assert all(p.requests_sleep_staging is False for p in others)
+
+    def test_sleep_hr_limits_lowered(self) -> None:
+        sleep = get_profile("sleep")
+        limits = sleep.hr_limits(PersonContext())
+        assert limits.brady_bpm == 40.0
+        assert limits.context == "sleeping"
+        assert "dips" in (limits.brady_note or "")
+
+    def test_sleep_hr_limits_athlete(self) -> None:
+        sleep = get_profile("sleep")
+        limits = sleep.hr_limits(PersonContext(athlete_baseline=True))
+        assert limits.brady_bpm == 35.0
+
+    def test_sleep_cautions_not_suppressions(self) -> None:
+        sleep = get_profile("sleep")
+        rr = _steady(55.0, duration_s=2400.0)
+        analysis = sleep.analyze(_inputs(rr), PersonContext())
+        cautioned = {c.family for c in analysis.cautions}
+        assert MetricFamily.FREQUENCY in cautioned
+        assert MetricFamily.NONLINEAR in cautioned
+        assert analysis.suppressions == []
+        assert "lowest_sustained_hr_bpm" in analysis.extras
+
+    def test_sleep_not_analysable_above_half_excluded(self) -> None:
+        sleep = get_profile("sleep")
+        rr = _steady(55.0, duration_s=2400.0)
+        analysis = sleep.analyze(_inputs(rr, excluded_s=2600.0), PersonContext())
+        assert analysis.not_analysable

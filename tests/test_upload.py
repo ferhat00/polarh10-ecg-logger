@@ -113,8 +113,8 @@ class TestUploadHappyPath:
         assert len(cache["rr_ms"]) > 100
         assert "peak_times_s" in cache
 
-        # Cache v2: morphology + ectopy event arrays travel with the session.
-        assert int(cache["cache_version"][0]) == 2
+        # Cache v2 added morphology + ectopy arrays; v3 added sleep arrays.
+        assert int(cache["cache_version"][0]) >= 2
         assert "morph_correlations" in cache
         assert "ectopy_confirmed_mask" in cache
         assert "event_t_start_s" in cache
@@ -248,3 +248,57 @@ class TestErrorPath:
 
 def _questions(session: Session) -> list[dict]:
     return json.loads(session.error_message or "{}").get("questions", [])
+
+
+class TestAccUpload:
+    def _upload_with_acc(
+        self, client: FlaskClient, person: Person, activity_id: int,
+        payload: bytes, acc_payload: bytes,
+    ):
+        return client.post(
+            "/sessions/upload",
+            data={
+                "person_id": str(person.id),
+                "activity_type_id": str(activity_id),
+                "context_note": "",
+                "file": (io.BytesIO(payload), "ecg_2026-08-10.csv"),
+                "acc_file": (io.BytesIO(acc_payload), "acc_2026-08-10.csv"),
+            },
+            content_type="multipart/form-data",
+        )
+
+    def test_acc_file_stored_next_to_ecg(
+        self, client: FlaskClient, app: Flask, person: Person, activity_id: int
+    ) -> None:
+        from tests.synth_util import make_acc_csv_bytes
+
+        acc_payload = make_acc_csv_bytes(duration_s=10.0, start=START)
+        resp = self._upload_with_acc(
+            client, person, activity_id, make_csv_bytes(), acc_payload
+        )
+        assert resp.status_code == 302
+        session = db.session.query(Session).one()
+        assert session.acc_original_filename == "acc_2026-08-10.csv"
+        assert session.acc_stored_path is not None
+        assert Path(session.acc_stored_path).exists()
+        assert Path(session.acc_stored_path).read_bytes() == acc_payload
+        assert session.acc_file_sha256 is not None
+        # A non-sleep activity: the ACC file is stored but staging is not run.
+        assert session.processing_status == ProcessingStatus.DONE
+
+    def test_identical_acc_and_ecg_rejected(
+        self, client: FlaskClient, app: Flask, person: Person, activity_id: int
+    ) -> None:
+        payload = make_csv_bytes()
+        resp = self._upload_with_acc(client, person, activity_id, payload, payload)
+        assert resp.status_code == 200  # re-rendered form with the error
+        assert b"attached twice" in resp.data
+        assert db.session.query(Session).count() == 0
+
+    def test_upload_without_acc_leaves_columns_null(
+        self, client: FlaskClient, app: Flask, person: Person, activity_id: int
+    ) -> None:
+        _upload(client, person, activity_id, make_csv_bytes())
+        session = db.session.query(Session).one()
+        assert session.acc_stored_path is None
+        assert session.acc_file_sha256 is None

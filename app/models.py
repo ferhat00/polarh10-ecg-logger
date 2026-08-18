@@ -50,6 +50,10 @@ class Person(db.Model):
     max_hr_bpm: Mapped[int | None] = mapped_column(default=None)
     #: Optional known resting HR, used for HR-reserve (Karvonen) computations.
     resting_hr_bpm: Mapped[int | None] = mapped_column(default=None)
+    #: Optional, "male"/"female". Used ONLY as a covariate by the SleepECG
+    #: sleep-stage classifiers (trained with a binary sex feature); never for
+    #: screening thresholds. Unknown is a fully supported value.
+    sex: Mapped[str | None] = mapped_column(String(10), default=None)
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
 
     sessions: Mapped[list[Session]] = relationship(
@@ -168,6 +172,16 @@ class Session(db.Model):
     stored_path: Mapped[str] = mapped_column(String(500))
     file_sha256: Mapped[str] = mapped_column(String(64), index=True)
 
+    # --- Optional accelerometer companion file (sleep sessions) -----------
+    #: The ACC export is a second, optional upload: movement feeds sleep
+    #: staging (wake detection) and the report's movement trace. Indexed but
+    #: NOT unique — re-uploading the same ACC with a different ECG is legal.
+    acc_original_filename: Mapped[str | None] = mapped_column(String(255), default=None)
+    acc_stored_path: Mapped[str | None] = mapped_column(String(500), default=None)
+    acc_file_sha256: Mapped[str | None] = mapped_column(
+        String(64), index=True, default=None
+    )
+
     processing_status: Mapped[str] = mapped_column(
         String(20), default=ProcessingStatus.PENDING
     )
@@ -272,6 +286,24 @@ class Metrics(db.Model):
     longest_run_beats: Mapped[int | None] = mapped_column(default=None)
     bigeminy_episode_n: Mapped[int | None] = mapped_column(default=None)
     trigeminy_episode_n: Mapped[int | None] = mapped_column(default=None)
+
+    # Sleep architecture (sleep sessions only; app.sleep). NULL everywhere
+    # else. Real columns, not extras keys, because cross-night trends group
+    # and filter on them (the ectopy-column precedent). Values come from the
+    # primary staging engine recorded in ``sleep_engine``; per-engine detail
+    # lives in extras["sleep"].
+    tst_min: Mapped[float | None] = mapped_column(default=None)
+    sleep_efficiency_pct: Mapped[float | None] = mapped_column(default=None)
+    sol_min: Mapped[float | None] = mapped_column(default=None)
+    waso_min: Mapped[float | None] = mapped_column(default=None)
+    #: Stage minutes are vocabulary-dependent: a 3-class engine fills none of
+    #: light/deep (it cannot tell them apart), a 4/5-class engine fills all.
+    light_min: Mapped[float | None] = mapped_column(default=None)
+    deep_min: Mapped[float | None] = mapped_column(default=None)
+    rem_min: Mapped[float | None] = mapped_column(default=None)
+    awakenings_n: Mapped[int | None] = mapped_column(default=None)
+    #: Which staging engine produced the columns above.
+    sleep_engine: Mapped[str | None] = mapped_column(String(40), default=None)
 
     #: Activity-specific derived metrics and per-window series.
     extras: Mapped[dict | None] = mapped_column(JSON, default=None)
