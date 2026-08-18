@@ -29,6 +29,7 @@ from app.ingest.exceptions import AmbiguousFormatError, LoaderError
 from app.ingest.loader import FormatOverrides, LoadedRecording, load_polar_csv
 from app.models import ExcludedSegment, Flag, Metrics, ProcessingStatus, Session
 from app.pipeline.engines import PipelineError
+from app.pipeline.events import EVENT_KIND_CODES
 from app.pipeline.hrv import HRVResult
 from app.pipeline.process import PipelineResult, run_pipeline
 from app.report.render import ReportMeta, build_report_html
@@ -138,6 +139,7 @@ def _persist(session: Session, rec: LoadedRecording, result: PipelineResult) -> 
     db.session.flush()
 
     h = hrv_censored
+    ev = result.events
     metrics = Metrics(
         session_id=session.id,
         n_beats=h.n_beats,
@@ -155,6 +157,17 @@ def _persist(session: Session, rec: LoadedRecording, result: PipelineResult) -> 
         sd1_sd2_ratio=h.sd1_sd2_ratio,
         sample_entropy=h.sample_entropy,
         dfa_alpha1=h.dfa_alpha1,
+        # Ectopy burden is a beat count over analysed time, not an HRV
+        # family, so activity suppressions never censor it.
+        ectopy_beats_n=ev.n_confirmed if ev else None,
+        ectopy_per_hour=ev.per_hour if ev else None,
+        ectopy_pct_beats=ev.pct_of_beats if ev else None,
+        single_n=ev.n_singles if ev else None,
+        couplet_n=ev.n_couplets if ev else None,
+        run_n=ev.n_runs if ev else None,
+        longest_run_beats=ev.longest_run_beats if ev else None,
+        bigeminy_episode_n=ev.bigeminy_episodes if ev else None,
+        trigeminy_episode_n=ev.trigeminy_episodes if ev else None,
         extras=_build_extras(result, hrv_censored, analysis),
     )
     db.session.add(metrics)
@@ -206,12 +219,46 @@ def _build_extras(
         "lf_peak_hz": hrv.lf_peak_hz,
         "psd_method": hrv.psd_method,
         "device_rr_median_abs_diff_ms": result.device_rr_median_abs_diff_ms,
+        "ectopy": _ectopy_extras(result),
         "notes": result.notes + analysis.notes,
     }
 
 
+def _ectopy_extras(result: PipelineResult) -> dict | None:
+    """Descriptive ectopy-event detail for the extras blob (see events.py)."""
+    ev = result.events
+    if ev is None:
+        return None
+    return {
+        "n_confirmed": ev.n_confirmed,
+        "per_hour": ev.per_hour,
+        "n_singles": ev.n_singles,
+        "n_couplets": ev.n_couplets,
+        "n_runs": ev.n_runs,
+        "longest_run_beats": ev.longest_run_beats,
+        "bigeminy_episodes": ev.bigeminy_episodes,
+        "trigeminy_episodes": ev.trigeminy_episodes,
+        "n_pause_complete": ev.n_pause_complete,
+        "n_pause_incomplete": ev.n_pause_incomplete,
+        "n_morphology_candidates": int(np.sum(result.morphology.ectopy_candidate)),
+    }
+
+
+#: Bumped when the cache gains arrays newer code depends on. Version 2 added
+#: the morphology and ectopy-event arrays; caches without a version predate
+#: them and load_cached_events() returns None so the UI can offer a reprocess.
+CACHE_VERSION = 2
+
+
 def _write_cache(session: Session, result: PipelineResult) -> None:
-    """Processed arrays next to the CSV — comparison views read these."""
+    """Processed arrays next to the CSV — comparison views read these.
+
+    Index conventions: ``morph_*`` arrays align with the *corrected* peak
+    train (``peaks_corrected``); the ectopy confirmation/event arrays align
+    with the *raw detected* train (``rpeak_indices``) — see PipelineResult.
+    """
+    ev = result.events
+    events = ev.events if ev else []
     np.savez_compressed(
         cache_path_for(session),
         rpeak_indices=result.detection.rpeak_indices,
@@ -224,7 +271,47 @@ def _write_cache(session: Session, result: PipelineResult) -> None:
         window_sqi=np.array([w.sqi_mean for w in result.quality.windows]),
         window_wander_mv=np.array([w.wander_rms_mv for w in result.quality.windows]),
         window_excluded=np.array([w.excluded for w in result.quality.windows]),
+        cache_version=np.array([CACHE_VERSION]),
+        morph_correlations=result.morphology.correlations,
+        morph_prematurity_pct=result.morphology.prematurity_pct,
+        morph_outlier_mask=result.morphology.outlier_mask,
+        morph_motion_explained=result.morphology.motion_explained,
+        morph_ectopy_candidate=result.morphology.ectopy_candidate,
+        ectopy_prematurity_pct=result.ectopy_prematurity_pct,
+        ectopy_motion_mask=result.ectopy_motion_mask,
+        ectopy_confirmed_mask=(
+            ev.confirmed_mask if ev else np.array([], dtype=bool)
+        ),
+        event_kind=np.array(
+            [EVENT_KIND_CODES[e.kind] for e in events], dtype=np.int8
+        ),
+        event_start_beat=np.array([e.start_beat for e in events], dtype=np.int64),
+        event_end_beat=np.array([e.end_beat for e in events], dtype=np.int64),
+        event_t_start_s=np.array([e.t_start_s for e in events]),
+        event_t_end_s=np.array([e.t_end_s for e in events]),
+        event_pause_ratio=np.array(
+            [np.nan if e.pause_ratio is None else e.pause_ratio for e in events]
+        ),
     )
+
+
+def load_cached_events(session: Session) -> dict | None:
+    """Event arrays from the cache; None when absent or pre-events (v1)."""
+    path = cache_path_for(session)
+    if not path.exists():
+        return None
+    with np.load(path) as data:
+        if "cache_version" not in data or int(data["cache_version"][0]) < 2:
+            return None
+        return {
+            "event_kind": data["event_kind"],
+            "event_start_beat": data["event_start_beat"],
+            "event_end_beat": data["event_end_beat"],
+            "event_t_start_s": data["event_t_start_s"],
+            "event_t_end_s": data["event_t_end_s"],
+            "event_pause_ratio": data["event_pause_ratio"],
+            "ectopy_confirmed_mask": data["ectopy_confirmed_mask"],
+        }
 
 
 def _write_report(

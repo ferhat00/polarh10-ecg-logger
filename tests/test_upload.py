@@ -113,6 +113,16 @@ class TestUploadHappyPath:
         assert len(cache["rr_ms"]) > 100
         assert "peak_times_s" in cache
 
+        # Cache v2: morphology + ectopy event arrays travel with the session.
+        assert int(cache["cache_version"][0]) == 2
+        assert "morph_correlations" in cache
+        assert "ectopy_confirmed_mask" in cache
+        assert "event_t_start_s" in cache
+        # Ectopy metrics columns populated (zero on a clean synthetic file).
+        assert metrics.ectopy_beats_n is not None
+        assert metrics.ectopy_per_hour is not None
+        assert metrics.extras["ectopy"]["n_confirmed"] == metrics.ectopy_beats_n
+
     def test_detail_page_and_report_served(
         self, client: FlaskClient, app: Flask, person: Person, activity_id: int
     ) -> None:
@@ -132,6 +142,33 @@ class TestUploadHappyPath:
         download = client.get(f"/sessions/{session.id}/report/download")
         assert "attachment" in download.headers["Content-Disposition"]
         assert f"session{session.id}" in download.headers["Content-Disposition"]
+
+
+class TestCacheVersioning:
+    def test_v2_cache_loads_events(
+        self, client: FlaskClient, app: Flask, person: Person, activity_id: int
+    ) -> None:
+        from app.processing import load_cached_events
+
+        _upload(client, person, activity_id, make_csv_bytes())
+        session = db.session.query(Session).one()
+        events = load_cached_events(session)
+        assert events is not None
+        assert "event_t_start_s" in events
+        assert len(events["ectopy_confirmed_mask"]) > 100
+
+    def test_pre_events_cache_reports_none(
+        self, client: FlaskClient, app: Flask, person: Person, activity_id: int
+    ) -> None:
+        from app.processing import cache_path_for, load_cached_events
+
+        _upload(client, person, activity_id, make_csv_bytes())
+        session = db.session.query(Session).one()
+        # Rewrite the cache in the pre-events (v1) shape: no cache_version.
+        np.savez_compressed(
+            cache_path_for(session), rr_ms=np.array([800.0, 810.0])
+        )
+        assert load_cached_events(session) is None
 
 
 class TestDuplicateRejection:

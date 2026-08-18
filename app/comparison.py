@@ -173,6 +173,14 @@ def build_comparison(sessions: list[Session], mixed: bool = False) -> Comparison
         row("Excluded time", "s", [s.excluded_s for s in sessions], "{:.0f}"),
         row("Beats corrected", "%", [s.beats_corrected_pct for s in sessions], "{:.2f}"),
         row("Mean HR", "bpm", metric("mean_hr_bpm"), "{:.0f}"),
+        row(
+            "Ectopic beats",
+            "/h",
+            metric("ectopy_per_hour"),
+            "{:.2f}",
+            "confirmed count over analysed time; single-session differences "
+            "sit inside normal day-to-day variability",
+        ),
         row("Resting HR (lowest sustained)", "bpm", resting, "{:.0f}"),
         row("RMSSD", "ms", rmssd),
         row(
