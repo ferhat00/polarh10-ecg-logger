@@ -21,6 +21,14 @@
       Resting HR (bpm) <span class="hint">optional — used for heart-rate-reserve calculations</span>
       <input type="number" name="resting_hr_bpm" min="25" max="120" value="{{ person.resting_hr_bpm or '' }}">
     </label>
+    <label>
+      Sex <span class="hint">optional — used only as a covariate by the sleep-stage classifier, never for screening</span>
+      <select name="sex">
+        <option value="" {{ "selected" if not person.sex }}>Prefer not to say</option>
+        <option value="female" {{ "selected" if person.sex == "female" }}>Female</option>
+        <option value="male" {{ "selected" if person.sex == "male" }}>Male</option>
+      </select>
+    </label>
     <label class="inline">
       <input type="checkbox" name="athlete_baseline" {{ "checked" if person.athlete_baseline }}>
       Athlete baseline

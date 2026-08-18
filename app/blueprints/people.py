@@ -70,6 +70,14 @@ def _apply_form(person: Person, form: dict[str, str]) -> list[str]:
             setattr(person, field, value)
 
     person.athlete_baseline = form.get("athlete_baseline") == "on"
+
+    sex = (form.get("sex") or "").strip().lower()
+    if sex in ("male", "female"):
+        person.sex = sex
+    elif sex == "":
+        person.sex = None
+    else:
+        errors.append("Sex must be male, female, or left unset.")
     return errors
 
 
