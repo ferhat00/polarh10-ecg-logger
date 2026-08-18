@@ -23,21 +23,58 @@ from sqlalchemy import select
 from app.activities.seed import ensure_builtin_activity_types
 from app.extensions import db
 from app.ingest.loader import CANONICAL_COLUMNS
-from app.models import ActivityType, Person, ProcessingStatus, Session
+from app.models import ActivityType, Person, ProcessingStatus, Session, TriggerTag, slugify
 from app.processing import report_path_for, submit_processing
+from app.triggers.seed import ensure_builtin_trigger_tags
 
 bp = Blueprint("sessions", __name__, url_prefix="/sessions")
 
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
+def _all_trigger_tags() -> list[TriggerTag]:
+    return db.session.scalars(
+        select(TriggerTag).order_by(TriggerTag.is_builtin.desc(), TriggerTag.name)
+    ).all()
+
+
+def _selected_tags(form) -> list[TriggerTag]:
+    """Resolve checked tag ids plus comma-separated custom names to rows.
+
+    Custom names are get-or-create by slug so "Poor Sleep" and "poor sleep"
+    land on one tag; brand-new names become non-builtin rows.
+    """
+    tags: dict[int, TriggerTag] = {}
+    for raw_id in form.getlist("trigger_tags"):
+        try:
+            tag = db.session.get(TriggerTag, int(raw_id))
+        except (TypeError, ValueError):
+            continue
+        if tag is not None:
+            tags[tag.id] = tag
+    for name in (form.get("new_tags") or "").split(","):
+        name = name.strip()
+        if not name:
+            continue
+        slug = slugify(name)
+        tag = db.session.scalar(select(TriggerTag).where(TriggerTag.slug == slug))
+        if tag is None:
+            tag = TriggerTag(name=name[:80], slug=slug)
+            db.session.add(tag)
+            db.session.flush()
+        tags[tag.id] = tag
+    return list(tags.values())
+
+
 @bp.route("/upload", methods=["GET", "POST"])
 def upload() -> str | Response:
     ensure_builtin_activity_types()
+    ensure_builtin_trigger_tags()
     people = db.session.scalars(select(Person).order_by(Person.name)).all()
     activities = db.session.scalars(
         select(ActivityType).order_by(ActivityType.is_builtin.desc(), ActivityType.name)
     ).all()
+    trigger_tags = _all_trigger_tags()
 
     if request.method == "POST":
         errors: list[str] = []
@@ -63,7 +100,8 @@ def upload() -> str | Response:
                 flash(e, "error")
             return render_template(
                 "sessions/upload.html", people=people, activities=activities,
-                form=request.form,
+                trigger_tags=trigger_tags, form=request.form,
+                selected_tag_ids=request.form.getlist("trigger_tags"),
             )
 
         sha256 = hashlib.sha256(payload).hexdigest()
@@ -87,6 +125,7 @@ def upload() -> str | Response:
         )
         db.session.add(session)
         db.session.flush()  # allocate session.id for the storage path
+        session.trigger_tags = _selected_tags(request.form)
 
         upload_dir = Path(current_app.config["UPLOAD_DIR"]) / person.slug
         upload_dir.mkdir(parents=True, exist_ok=True)
@@ -100,13 +139,15 @@ def upload() -> str | Response:
         return redirect(url_for("sessions.detail", session_id=session.id))
 
     return render_template(
-        "sessions/upload.html", people=people, activities=activities, form={}
+        "sessions/upload.html", people=people, activities=activities,
+        trigger_tags=trigger_tags, form={}, selected_tag_ids=[],
     )
 
 
 @bp.get("/<int:session_id>")
 def detail(session_id: int) -> str:
     session = db.get_or_404(Session, session_id)
+    ensure_builtin_trigger_tags()
     questions = _mapping_questions(session)
     extras = session.metrics.extras if session.metrics else None
     return render_template(
@@ -114,8 +155,18 @@ def detail(session_id: int) -> str:
         session=session,
         questions=questions,
         extras=extras or {},
+        trigger_tags=_all_trigger_tags(),
         has_report=report_path_for(session).exists() if session.stored_path else False,
     )
+
+
+@bp.post("/<int:session_id>/tags")
+def edit_tags(session_id: int) -> Response:
+    session = db.get_or_404(Session, session_id)
+    session.trigger_tags = _selected_tags(request.form)
+    db.session.commit()
+    flash("Trigger tags updated.", "ok")
+    return redirect(url_for("sessions.detail", session_id=session.id))
 
 
 @bp.get("/<int:session_id>/status")

@@ -38,6 +38,24 @@
       Context note <span class="hint">optional — “after coffee”, “poor sleep”, “browsing library and shop”… context often explains an outlier</span>
       <textarea name="context_note" rows="2">{{ form.get('context_note', '') }}</textarea>
     </label>
+    <fieldset class="stack" style="border:none; padding:0; margin:0">
+      <legend class="eyebrow" style="padding:0">Trigger tags</legend>
+      <span class="hint">optional — exposures in the hours before or during this recording;
+        the triggers page compares ectopic-beat rates between tagged and untagged sessions</span>
+      <div style="display:flex; flex-wrap:wrap; gap:0.35rem 1rem">
+        {% for tag in trigger_tags %}
+          <label style="display:inline-flex; align-items:center; gap:0.35rem; font-weight:normal">
+            <input type="checkbox" name="trigger_tags" value="{{ tag.id }}"
+                   {{ "checked" if tag.id|string in selected_tag_ids }}>
+            {{ tag.name }}
+          </label>
+        {% endfor %}
+      </div>
+      <label>
+        Other tags <span class="hint">comma-separated, e.g. “cold shower, new medication”</span>
+        <input type="text" name="new_tags" value="{{ form.get('new_tags', '') }}">
+      </label>
+    </fieldset>
     <label>
       ECG CSV file
       <input type="file" name="file" accept=".csv,text/csv" required>
