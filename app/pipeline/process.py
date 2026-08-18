@@ -9,7 +9,9 @@ Order of operations, each stage visible in the result:
    breach physiological bounds.
 5. Beat-template correlation with prematurity/motion cross-referencing.
 6. HRV metrics.
-7. Cross-check our RR series against the device's own rr stream.
+7. Ectopy confirmation on the *raw detected* train and event grouping
+   (singles/couplets/runs — see :mod:`app.pipeline.events`).
+8. Cross-check our RR series against the device's own rr stream.
 
 QRS width, QT, QTc, PR interval, and ECG axis are never computed: at ~130 Hz
 one sample is 7.7 ms and delineation output is quantisation artifact, not

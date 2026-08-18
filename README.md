@@ -78,6 +78,30 @@ columns, ambiguous unit or epoch — raises a specific error carrying the questi
 that need answering, and the UI shows a mapping form instead of guessing. A wrong
 unit or epoch assumption would corrupt everything downstream, so nothing guesses.
 
+## Trigger tags and ectopy statistics
+
+Rare, benign ectopic beats are exactly what wrist-based spot-check wearables miss:
+counting them needs a continuous denominator of analysed beats. This tool confirms
+ectopic beats with a triple gate (artifact-correction class ∧ prematurity against the
+local rhythm ∧ not explained by motion), groups them into events (singles, couplets,
+runs, bigeminy/trigeminy patterns, each with a compensatory-pause descriptor), and
+stores per-session burden so it can be compared across conditions.
+
+**Trigger tags** mark exposures in the hours before or during a recording — caffeine,
+alcohol, poor sleep, stress, and friends (the vocabulary follows the published
+trigger trials; custom tags welcome). Tag sessions at upload or from the session
+page, then open **Triggers** for the statistics: burden over time, tagged-vs-untagged
+comparisons, an hour-of-day profile, and per-tag rate ratios from a
+negative-binomial model with an analysed-time offset and a circadian covariate.
+
+The statistics are deliberately guarded. Ectopic burden swings severalfold between
+days within one person, so the dashboard refuses to print estimates below minimum
+data thresholds, shows confidence intervals rather than verdicts, and spells out the
+association-not-causation caveats. Sessions processed before this feature need one
+re-analysis (button on the session page) to populate their event data. The full
+literature grounding — device validation, algorithm choices, variability numbers,
+and the experiment designs worth copying — is in [`docs/RESEARCH.md`](docs/RESEARCH.md).
+
 ## Adding an activity profile
 
 Activities change what is computed, what is suppressed, and how results are read,
