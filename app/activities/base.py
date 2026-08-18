@@ -158,6 +158,11 @@ class ActivityProfile:
     comparison_key: str = ""
     #: Above this excluded fraction the session is declared not analysable.
     max_excluded_fraction: float | None = None
+    #: True when sessions of this profile should get sleep-stage analysis
+    #: (:mod:`app.sleep`). Staging runs as a processing step — it needs the
+    #: recording start time, R-peak train, raw ECG, and the optional ACC file,
+    #: none of which belong in :class:`ActivityInputs`.
+    requests_sleep_staging: bool = False
     static_suppressions: tuple[Suppression, ...] = ()
     interpretation_notes: tuple[str, ...] = ()
 

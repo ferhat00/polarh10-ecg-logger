@@ -16,6 +16,10 @@ from scipy import signal as sp_signal
 
 #: Window length for quality scoring.
 WINDOW_S = 5.0
+#: Chunk length for the local SQI pass (see _signal_quality_index): long
+#: enough for a stable average-QRS template, short enough that heart rate is
+#: near-stationary within it.
+SQI_CHUNK_S = 300.0
 #: Plausible chest-strap ECG range. R-waves run roughly 0.5–3 mV; sustained
 #: excursions beyond ±4 mV indicate electrode artifact, not physiology.
 PLAUSIBLE_ABS_MV = 4.0
@@ -139,6 +143,39 @@ def assess_quality(
 
 
 def _signal_quality_index(ecg_clean_mv: np.ndarray, fs_hz: float) -> np.ndarray:
+    """Per-sample averageQRS quality index, robust to slow heart-rate drift.
+
+    The averageQRS method correlates each beat's neighbourhood against the
+    recording-wide mean template, so its window content shifts with heart
+    rate: on a multi-hour recording whose rate legitimately drifts (an
+    overnight session moves between sleep stages 15+ bpm apart), clean
+    stretches at a rate atypical for the recording score as "bad signal".
+
+    Fix: also compute the index per ~5-minute chunk (rate is near-stationary
+    within a chunk, so the local template fits the local rate) and take the
+    per-sample maximum. Genuine noise correlates with *neither* the global
+    nor the local template and stays excluded; clean rate-deviant signal is
+    rescued by its local template. Recordings shorter than one chunk are
+    unchanged (local == global).
+    """
+    global_sqi = _average_qrs(ecg_clean_mv, fs_hz)
+    chunk = int(SQI_CHUNK_S * fs_hz)
+    n = len(ecg_clean_mv)
+    if n <= chunk + chunk // 2:
+        return global_sqi
+
+    local = np.full(n, np.nan)
+    start = 0
+    while start < n:
+        end = start + chunk
+        if n - end < chunk // 2:  # fold a short tail into the last chunk
+            end = n
+        local[start:end] = _average_qrs(ecg_clean_mv[start:end], fs_hz)
+        start = end
+    return np.fmax(global_sqi, local)  # fmax: NaN loses to a real value
+
+
+def _average_qrs(ecg_clean_mv: np.ndarray, fs_hz: float) -> np.ndarray:
     import neurokit2 as nk
 
     try:

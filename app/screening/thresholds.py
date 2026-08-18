@@ -31,6 +31,20 @@ BRADY_SUSTAINED_BPM = 60.0
 #: interpretation in athletes, JACC 2017;69:1057-1075).
 ATHLETE_BRADY_BPM = 45.0
 
+#: Bradycardia threshold while asleep. Nocturnal HR normally dips 10-30 %
+#: below waking rest ("dipping"); rates in the 40s are unremarkable in
+#: healthy sleepers and sinus rates in the 30s with pauses are common in
+#: trained athletes overnight (Kusumoto et al., 2018 ACC/AHA/HRS bradycardia
+#: guideline, Circulation 2019;140:e382-e482 — nocturnal bradycardia in
+#: normals; Sharma et al., JACC 2017;69:1057-1075 — athletes). Keeping the
+#: resting threshold overnight would flag nearly every healthy night.
+SLEEP_BRADY_BPM = 40.0
+SLEEP_ATHLETE_BRADY_BPM = 35.0
+
+#: Tachycardia threshold while asleep: unchanged from rest — a *sustained*
+#: rate above 100 bpm during sleep remains worth surfacing.
+SLEEP_TACHY_BPM = TACHY_SUSTAINED_BPM
+
 #: "Sustained" means a rolling window of this length stays across the
 #: threshold — single-beat excursions never flag. ~45 s per the project spec;
 #: comfortably longer than transient sinus arrhythmia or a startle response.
@@ -149,5 +163,33 @@ def default_limits(athlete_baseline: bool) -> HRLimits:
             "A low resting rate is a low-specificity observation, especially in "
             "physically trained people; consider enabling the athlete-baseline setting "
             "if that applies."
+        ),
+    )
+
+
+def sleep_limits(athlete_baseline: bool) -> HRLimits:
+    """Overnight limits: the bradycardia threshold drops because nocturnal
+    HR dipping is normal physiology, not a finding."""
+    if athlete_baseline:
+        return HRLimits(
+            tachy_bpm=SLEEP_TACHY_BPM,
+            brady_bpm=SLEEP_ATHLETE_BRADY_BPM,
+            context="sleeping",
+            brady_note=(
+                "Sleep plus the athlete-baseline setting lowers the low-HR screening "
+                f"threshold to {SLEEP_ATHLETE_BRADY_BPM:.0f} bpm — nocturnal sinus "
+                "rates in the 30s are a recognised finding in endurance-trained "
+                "sleepers, not a pattern worth noting by itself."
+            ),
+        )
+    return HRLimits(
+        tachy_bpm=SLEEP_TACHY_BPM,
+        brady_bpm=SLEEP_BRADY_BPM,
+        context="sleeping",
+        brady_note=(
+            f"The low-HR screening threshold during sleep is {SLEEP_BRADY_BPM:.0f} bpm "
+            "rather than the resting threshold: nocturnal heart rate normally dips "
+            "10-30% below waking rest, and rates in the 40s are unremarkable in "
+            "healthy sleepers."
         ),
     )

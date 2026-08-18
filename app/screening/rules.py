@@ -125,16 +125,27 @@ def flag_sustained_hr(rr: RRSeries, limits: HRLimits) -> list[ScreeningFlag]:
 
 
 def _hr_windows(rr: RRSeries) -> list[tuple[float, float, float]]:
-    """(start_s, end_s, mean HR bpm) for rolling sustained-HR windows."""
-    out: list[tuple[float, float, float]] = []
+    """(start_s, end_s, mean HR bpm) for rolling sustained-HR windows.
+
+    Window membership comes from ``searchsorted`` over the (sorted) interval
+    times plus a cumulative sum — an 8 h night has ~5,800 windows over ~35 k
+    intervals, where a boolean mask per window is quadratic and was the
+    slowest step of overnight screening.
+    """
     t0, t1 = float(rr.t_s[0]), float(rr.t_s[-1])
-    w = t0
-    while w + th.SUSTAINED_WINDOW_S <= t1 + th.SUSTAINED_STEP_S:
-        mask = (rr.t_s >= w) & (rr.t_s < w + th.SUSTAINED_WINDOW_S)
-        if int(np.sum(mask)) >= th.SUSTAINED_MIN_BEATS:
-            mean_rr = float(np.mean(rr.rr_ms[mask]))
-            out.append((w, w + th.SUSTAINED_WINDOW_S, 60000.0 / mean_rr))
-        w += th.SUSTAINED_STEP_S
+    starts = np.arange(t0, t1 + th.SUSTAINED_STEP_S - th.SUSTAINED_WINDOW_S + 1e-9,
+                       th.SUSTAINED_STEP_S)
+    if len(starts) == 0:
+        return []
+    lo = np.searchsorted(rr.t_s, starts, side="left")
+    hi = np.searchsorted(rr.t_s, starts + th.SUSTAINED_WINDOW_S, side="left")
+    csum = np.concatenate(([0.0], np.cumsum(rr.rr_ms)))
+    counts = hi - lo
+    out: list[tuple[float, float, float]] = []
+    for w, a, b, n in zip(starts, lo, hi, counts, strict=True):
+        if n >= th.SUSTAINED_MIN_BEATS:
+            mean_rr = (csum[b] - csum[a]) / n
+            out.append((float(w), float(w + th.SUSTAINED_WINDOW_S), 60000.0 / mean_rr))
     return out
 
 

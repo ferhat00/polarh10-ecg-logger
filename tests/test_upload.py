@@ -113,8 +113,8 @@ class TestUploadHappyPath:
         assert len(cache["rr_ms"]) > 100
         assert "peak_times_s" in cache
 
-        # Cache v2: morphology + ectopy event arrays travel with the session.
-        assert int(cache["cache_version"][0]) == 2
+        # Cache v2 added morphology + ectopy arrays; v3 added sleep arrays.
+        assert int(cache["cache_version"][0]) >= 2
         assert "morph_correlations" in cache
         assert "ectopy_confirmed_mask" in cache
         assert "event_t_start_s" in cache
