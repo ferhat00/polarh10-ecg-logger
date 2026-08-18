@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Trigger tags — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Triggers</p>
+  <h1>Trigger tags</h1>
+  <p>
+    The built-in vocabulary follows the exposures tested in published trigger
+    trials (see <span class="mono">docs/RESEARCH.md</span>). Custom tags can be
+    added here or typed directly on the upload form.
+  </p>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Tag</th><th>Kind</th><th class="num">Sessions</th><th></th></tr></thead>
+      <tbody>
+        {% for tag in tags %}
+          <tr>
+            <td>{{ tag.name }}</td>
+            <td>{{ "built-in" if tag.is_builtin else "custom" }}</td>
+            <td class="num">{{ counts.get(tag.id, 0) }}</td>
+            <td>
+              {% if not tag.is_builtin and not counts.get(tag.id) %}
+                <form method="post" action="{{ url_for('triggers.delete_tag', tag_id=tag.id) }}">
+                  <button type="submit" class="button-quiet">Delete</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="eyebrow">Add a custom tag</p>
+  <form class="stack card" method="post">
+    <label>
+      Name
+      <input type="text" name="name" required maxlength="80"
+             placeholder="e.g. cold shower">
+    </label>
+    <div><button type="submit">Add tag</button></div>
+  </form>
+{% endblock %}

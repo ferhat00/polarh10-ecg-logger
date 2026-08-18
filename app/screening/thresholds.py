@@ -58,6 +58,36 @@ ECTOPY_PCT_THRESHOLD = 1.0
 BIGEMINY_MIN_RUN = 3
 
 # ---------------------------------------------------------------------------
+# Ectopy event grouping
+# ---------------------------------------------------------------------------
+
+#: Two consecutive confirmed ectopic beats form a couplet; this vocabulary
+#: follows the classical ventricular-ectopy grading tradition (Lown & Wolf,
+#: Circulation 1971;44:130-142), used here for single-lead-confirmed ectopic
+#: beats of any origin.
+COUPLET_BEATS = 2
+
+#: Three or more consecutive confirmed ectopic beats form a run (salvo), per
+#: the same grading tradition.
+RUN_MIN_BEATS = 3
+
+#: Beat spacing that defines the alternating patterns: bigeminy is an ectopic
+#: every other beat (spacing 2), trigeminy every third beat (spacing 3).
+#: Episode length still requires BIGEMINY_MIN_RUN pattern beats.
+BIGEMINY_SPACING = 2
+TRIGEMINY_SPACING = 3
+
+#: A post-ectopic pause counts as "full compensatory" when
+#: (RR_pre + RR_post) reaches this fraction of twice the local reference RR —
+#: the classical full-pause criterion (the sinus beat after the ectopic lands
+#: on schedule; see e.g. Marriott's Practical Electrocardiography). The 5 %
+#: tolerance absorbs the ±7.7 ms sample quantisation at 130 Hz (~2 % of an
+#: 800 ms interval) plus normal sinus-rate drift. A full pause is *typical of*
+#: ventricular origin in the literature, but at 130 Hz on a single lead this
+#: ratio is reported as a timing descriptor only, never an origin call.
+PAUSE_COMPLETE_RATIO = 0.95
+
+# ---------------------------------------------------------------------------
 # RR irregularity (possible AF) screening
 # ---------------------------------------------------------------------------
 

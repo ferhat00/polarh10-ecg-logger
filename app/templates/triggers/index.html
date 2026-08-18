@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Triggers — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Triggers</p>
+  <h1>Ectopy trigger statistics</h1>
+  <p>
+    Compare confirmed-ectopic-beat rates between sessions tagged with an exposure
+    (caffeine, alcohol, poor sleep…) and sessions without it. Tags are set on upload
+    or from a session's page; <a href="{{ url_for('triggers.manage_tags') }}">manage the
+    tag vocabulary</a>.
+  </p>
+  {% if people %}
+    <div class="card"><ul>
+      {% for p in people %}
+        <li><a href="{{ url_for('triggers.dashboard', person_id=p.id) }}">{{ p.name }}</a>
+            <span class="hint">({{ p.sessions | length }} session(s))</span></li>
+      {% endfor %}
+    </ul></div>
+  {% else %}
+    <div class="empty-state">No people yet.</div>
+  {% endif %}
+{% endblock %}

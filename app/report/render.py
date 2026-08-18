@@ -256,6 +256,16 @@ def _kpis(
                 f"{max(hrv.sdnn_per_window_ms):.0f} ms"
             )
         kpis.append(("SDNN (whole record)", f"{hrv.sdnn_ms:.1f} ms", note))
+    if result.events is not None:
+        ev = result.events
+        rate = f" ({ev.per_hour:.2f}/h)" if ev.per_hour is not None else ""
+        kpis.append(
+            (
+                "Ectopic beats",
+                f"{ev.n_confirmed}{rate}",
+                "confirmed by correction class + prematurity + motion veto",
+            )
+        )
     kpis.append(("Engine", result.engine_used, result.fallback_reason or ""))
     return kpis
 

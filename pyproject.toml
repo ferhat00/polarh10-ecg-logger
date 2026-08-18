@@ -14,3 +14,12 @@ testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning:biosppy.*",
 ]
+
+# CI runs pylint in errors-only mode (pylint -E); ruff owns style locally.
+[tool.pylint.main]
+py-version = "3.12"
+ignore-paths = ["migrations/.*"]
+
+[tool.pylint."messages control"]
+# numpy's NpzFile defeats pylint's subscript inference (E1136 false positives).
+disable = ["unsubscriptable-object"]

@@ -13,6 +13,34 @@
   </p>
   {% if session.context_note %}<p><em>“{{ session.context_note }}”</em></p>{% endif %}
 
+  <p>
+    {% for tag in session.trigger_tags %}
+      <span class="badge">{{ tag.name }}</span>
+    {% else %}
+      <span class="hint">no trigger tags</span>
+    {% endfor %}
+  </p>
+  <details>
+    <summary class="hint" style="cursor:pointer">Edit trigger tags</summary>
+    <form method="post" action="{{ url_for('sessions.edit_tags', session_id=session.id) }}"
+          class="stack" style="margin-top:0.5rem">
+      <div style="display:flex; flex-wrap:wrap; gap:0.35rem 1rem">
+        {% for tag in trigger_tags %}
+          <label style="display:inline-flex; align-items:center; gap:0.35rem; font-weight:normal">
+            <input type="checkbox" name="trigger_tags" value="{{ tag.id }}"
+                   {{ "checked" if tag in session.trigger_tags }}>
+            {{ tag.name }}
+          </label>
+        {% endfor %}
+      </div>
+      <label>
+        Other tags <span class="hint">comma-separated; new names become custom tags</span>
+        <input type="text" name="new_tags" value="">
+      </label>
+      <div><button type="submit" class="button-quiet">Save tags</button></div>
+    </form>
+  </details>
+
   {% if session.processing_status in ("pending", "running") %}
     <div class="card" id="processing-card"
          data-status-url="{{ url_for('sessions.status', session_id=session.id) }}">
@@ -62,6 +90,18 @@
           <tr><th>Mean HR</th><td class="num">{{ session.metrics.mean_hr_bpm | round(0) if session.metrics.mean_hr_bpm else "—" }} bpm</td></tr>
           <tr><th>RMSSD</th><td class="num">{{ session.metrics.rmssd_ms | round(1) if session.metrics.rmssd_ms is not none else "—" }} ms</td></tr>
           <tr><th>SDNN (whole record)</th><td class="num">{{ session.metrics.sdnn_ms | round(1) if session.metrics.sdnn_ms is not none else "—" }} ms <span class="hint">trend-inclusive</span></td></tr>
+          <tr><th>Ectopic beats</th>
+              <td class="num">
+              {% if session.metrics.ectopy_beats_n is not none %}
+                {{ session.metrics.ectopy_beats_n }}
+                {% if session.metrics.ectopy_per_hour is not none %}({{ "%.2f"|format(session.metrics.ectopy_per_hour) }}/h){% endif %}
+                {% if session.metrics.couplet_n or session.metrics.run_n %}
+                  <span class="hint">{{ session.metrics.couplet_n or 0 }} couplet(s) · {{ session.metrics.run_n or 0 }} run(s)</span>
+                {% endif %}
+              {% else %}
+                — <span class="hint">analysed before ectopy events existed — re-analyse to populate</span>
+              {% endif %}
+              </td></tr>
           {% endif %}
           <tr><th>Beats corrected</th><td class="num">{{ "%.2f%%"|format(session.beats_corrected_pct or 0) }}</td></tr>
           <tr><th>Engine</th><td class="num">{{ session.engine_used }}</td></tr>

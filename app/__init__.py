@@ -32,6 +32,7 @@ def create_app(config_object: object | None = None) -> Flask:
     from app.blueprints.people import bp as people_bp
     from app.blueprints.report_preview import bp as report_preview_bp
     from app.blueprints.sessions import bp as sessions_bp
+    from app.blueprints.triggers import bp as triggers_bp
 
     app.register_blueprint(home_bp)
     app.register_blueprint(people_bp)
@@ -40,6 +41,7 @@ def create_app(config_object: object | None = None) -> Flask:
     app.register_blueprint(sessions_bp)
     app.register_blueprint(compare_bp)
     app.register_blueprint(logbook_bp)
+    app.register_blueprint(triggers_bp)
 
     from flask import render_template
 

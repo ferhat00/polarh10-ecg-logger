@@ -9,7 +9,9 @@ Order of operations, each stage visible in the result:
    breach physiological bounds.
 5. Beat-template correlation with prematurity/motion cross-referencing.
 6. HRV metrics.
-7. Cross-check our RR series against the device's own rr stream.
+7. Ectopy confirmation on the *raw detected* train and event grouping
+   (singles/couplets/runs — see :mod:`app.pipeline.events`).
+8. Cross-check our RR series against the device's own rr stream.
 
 QRS width, QT, QTc, PR interval, and ECG axis are never computed: at ~130 Hz
 one sample is 7.7 ms and delineation output is quantisation artifact, not
@@ -25,10 +27,16 @@ import numpy as np
 from app.ingest.loader import LoadedRecording
 from app.pipeline.correction import CorrectionResult, correct_peaks
 from app.pipeline.engines import RPeakDetection, detect_rpeaks
+from app.pipeline.events import EctopyEvents, confirmed_ectopic_indices, extract_events
 from app.pipeline.hrv import HRVResult, compute_hrv
 from app.pipeline.quality import QualityResult, assess_quality
 from app.pipeline.rr import RRSeries, build_rr
-from app.pipeline.template import BeatMorphology, beat_morphology
+from app.pipeline.template import (
+    BeatMorphology,
+    beat_morphology,
+    motion_degraded,
+    prematurity_series,
+)
 
 #: Max time distance when matching our beats to device rr entries (s).
 DEVICE_MATCH_TOLERANCE_S = 0.5
@@ -52,6 +60,14 @@ class PipelineResult:
     #: Median |our RR − device RR| in ms, when the device stream exists.
     device_rr_median_abs_diff_ms: float | None = None
     notes: list[str] = field(default_factory=list)
+    #: Confirmed-ectopy events, grouped from the masks above (derived only).
+    events: EctopyEvents | None = None
+    #: Per *raw detected* beat: prematurity and motion state, the inputs to
+    #: ectopy confirmation. The raw train is used deliberately — the Kubios
+    #: iterative pass repositions the beats it classifies ectopic, so the
+    #: corrected train no longer carries the prematurity being confirmed.
+    ectopy_prematurity_pct: np.ndarray = field(default_factory=lambda: np.array([]))
+    ectopy_motion_mask: np.ndarray = field(default_factory=lambda: np.array([], dtype=bool))
 
 
 def run_pipeline(rec: LoadedRecording) -> PipelineResult:
@@ -106,6 +122,26 @@ def run_pipeline(rec: LoadedRecording) -> PipelineResult:
 
     hrv = compute_hrv(rr)
 
+    raw_peaks = np.clip(detection.rpeak_indices, 0, len(rec.time_s) - 1)
+    raw_times = rec.time_s[raw_peaks]
+    ectopy_prematurity = prematurity_series(raw_peaks, rec.sampling_rate_hz)
+    ectopy_motion = motion_degraded(raw_peaks, rec.time_s, quality)
+    confirmed = confirmed_ectopic_indices(
+        len(raw_peaks),
+        correction.ectopic_beat_indices,
+        ectopy_prematurity,
+        ectopy_motion,
+    )
+    events = extract_events(
+        confirmed, raw_times, quality.analysed_total_s, quality.excluded_segments
+    )
+    if events.n_confirmed:
+        notes.append(
+            f"{events.n_confirmed} confirmed ectopic beat(s): "
+            f"{events.n_singles} single(s), {events.n_couplets} couplet(s), "
+            f"{events.n_runs} run(s) of 3+."
+        )
+
     device_diff = _device_rr_agreement(rec, peak_times)
     if device_diff is not None:
         notes.append(
@@ -127,6 +163,9 @@ def run_pipeline(rec: LoadedRecording) -> PipelineResult:
         peak_times_s=peak_times,
         device_rr_median_abs_diff_ms=device_diff,
         notes=notes,
+        events=events,
+        ectopy_prematurity_pct=ectopy_prematurity,
+        ectopy_motion_mask=ectopy_motion,
     )
 
 

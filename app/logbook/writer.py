@@ -86,6 +86,18 @@ def append_session_entry(session: Session) -> None:
     if activity_bits:
         lines.append("- **Activity-specific:** " + " · ".join(activity_bits))
 
+    if metrics and metrics.ectopy_beats_n is not None:
+        ectopy_bits = [f"{metrics.ectopy_beats_n} confirmed"]
+        if metrics.ectopy_per_hour is not None:
+            ectopy_bits[0] += f" ({metrics.ectopy_per_hour:.2f}/h)"
+        if metrics.couplet_n:
+            ectopy_bits.append(f"{metrics.couplet_n} couplet(s)")
+        if metrics.run_n:
+            ectopy_bits.append(f"{metrics.run_n} run(s), longest {metrics.longest_run_beats}")
+        if metrics.bigeminy_episode_n:
+            ectopy_bits.append(f"{metrics.bigeminy_episode_n} bigeminy-pattern episode(s)")
+        lines.append("- **Ectopic beats:** " + " · ".join(ectopy_bits))
+
     if extras.get("not_analysable"):
         lines.append("- **Flags:** session not analysable — screening skipped")
     elif session.flags:
@@ -101,6 +113,8 @@ def append_session_entry(session: Session) -> None:
     ]
     if note_lines:
         lines.append("- **Notes:** " + " ".join(note_lines))
+    if session.trigger_tags:
+        lines.append("- **Triggers:** " + " · ".join(t.name for t in session.trigger_tags))
     if session.context_note:
         lines.append(f"- **Context:** {session.context_note}")
     lines.append(
