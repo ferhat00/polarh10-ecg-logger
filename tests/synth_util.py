@@ -58,6 +58,102 @@ def peak_indices_for(beat_times_s: np.ndarray, fs_hz: float = FS_HZ) -> np.ndarr
     return np.round(beat_times_s * fs_hz).astype(np.int64)
 
 
+#: Per-stage RR modulation parameters for the overnight synthesizer:
+#: (HR delta above base bpm, LF sine amplitude ms @0.10 Hz,
+#:  HF/RSA sine amplitude ms @0.25 Hz, white jitter σ ms).
+#: The orderings mirror the staging literature: deep = vagal maximum
+#: (huge RSA, tiny LF), REM/wake = LF dominance, wake = highest HR.
+STAGE_RR_PARAMS: dict[str, tuple[float, float, float, float]] = {
+    "wake": (15.0, 30.0, 8.0, 10.0),
+    "light": (5.0, 25.0, 18.0, 6.0),
+    "deep": (0.0, 8.0, 35.0, 4.0),
+    "rem": (8.0, 40.0, 10.0, 8.0),
+}
+
+STAGE_PLAN_DEFAULT: list[tuple[str, float]] = [
+    ("wake", 10),
+    ("light", 30),
+    ("deep", 30),
+    ("light", 20),
+    ("rem", 20),
+    ("light", 25),
+    ("deep", 15),
+    ("rem", 25),
+    ("wake", 5),
+]
+
+
+def overnight_rr(
+    stage_plan: list[tuple[str, float]] | None = None,
+    base_hr_bpm: float = 55.0,
+    seed: int = 11,
+    epoch_len_s: float = 30.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(rr_ms, t_s, true_stage_per_epoch) with stage-programmed modulation.
+
+    ``stage_plan`` is a list of (stage, minutes). Truth labels use the
+    4-class codes 0=wake 1=light 2=deep 3=rem on 30 s epochs.
+    """
+    stage_plan = stage_plan or STAGE_PLAN_DEFAULT
+    codes = {"wake": 0, "light": 1, "deep": 2, "rem": 3}
+    rng = np.random.default_rng(seed)
+
+    boundaries: list[tuple[float, str]] = []
+    t_edge = 0.0
+    for stage, minutes in stage_plan:
+        boundaries.append((t_edge, stage))
+        t_edge += minutes * 60.0
+    total_s = t_edge
+
+    def stage_at(t: float) -> str:
+        current = boundaries[0][1]
+        for edge, stage in boundaries:
+            if t >= edge:
+                current = stage
+            else:
+                break
+        return current
+
+    beat_times: list[float] = []
+    rr_list: list[float] = []
+    t = 0.0
+    while t < total_s:
+        delta, a_lf, a_hf, jitter = STAGE_RR_PARAMS[stage_at(t)]
+        rr_ms = (
+            60000.0 / (base_hr_bpm + delta)
+            + a_lf * np.sin(2 * np.pi * 0.10 * t)
+            + a_hf * np.sin(2 * np.pi * 0.25 * t)
+            + rng.normal(0.0, jitter)
+        )
+        t += rr_ms / 1000.0
+        beat_times.append(t)
+        rr_list.append(rr_ms)
+
+    n_epochs = int(np.ceil(total_s / epoch_len_s))
+    truth = np.array(
+        [
+            codes[stage_at((k + 0.5) * epoch_len_s)]
+            for k in range(n_epochs)
+        ],
+        dtype=np.int8,
+    )
+    return np.array(rr_list), np.array(beat_times), truth
+
+
+def rr_series_from(rr_ms: np.ndarray, t_s: np.ndarray):
+    """A contiguous RRSeries directly from arrays (engine-level tests)."""
+    from app.pipeline.rr import RRSeries
+
+    return RRSeries(
+        rr_ms=np.asarray(rr_ms, dtype=float),
+        t_s=np.asarray(t_s, dtype=float),
+        discontinuity=np.zeros(len(rr_ms), dtype=bool),
+        n_dropped_excluded=0,
+        n_dropped_ceiling=0,
+        n_dropped_floor=0,
+    )
+
+
 def make_acc_csv_bytes(
     duration_s: float,
     fs_hz: float = 50.0,
