@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Triggers — {{ person.name }} — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Triggers</p>
+  <h1>Ectopy trigger statistics — {{ person.name }}</h1>
+  <p>
+    Confirmed ectopic beats per hour of analysed recording, compared between
+    sessions with and without each trigger tag. Tags are self-reported
+    exposures, so everything below is an <strong>association</strong>, not a
+    cause — and never medical advice.
+  </p>
+
+  <p class="eyebrow">Data</p>
+  <div class="card">
+    <table>
+      <tbody>
+        <tr><th>Sessions in the statistics</th>
+            <td class="num"><strong>{{ analysis.observations | length }}</strong></td></tr>
+        <tr><th>Confirmed ectopic beats</th>
+            <td class="num">{{ analysis.total_ectopics }}
+              over {{ "%.1f"|format(analysis.total_analysed_hours) }} analysed hour(s)
+              {% if analysis.overall_rate_per_hour is not none %}
+                — {{ "%.2f"|format(analysis.overall_rate_per_hour) }}/h overall
+              {% endif %}</td></tr>
+        {% if analysis.notes.n_too_short %}
+          <tr><th>Too short to use</th>
+              <td class="num">{{ analysis.notes.n_too_short }} session(s) under 10 analysed minutes</td></tr>
+        {% endif %}
+        {% if analysis.notes.n_not_done %}
+          <tr><th>Not processed</th>
+              <td class="num">{{ analysis.notes.n_not_done }} session(s)</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if awaiting %}
+    <div class="card" style="border-color:var(--warn)">
+      <p><strong>{{ awaiting | length }} session(s) await re-analysis</strong> — they were
+      processed before ectopy events existed, so their counts are missing here.
+      Re-analyse to include them:</p>
+      <ul class="notes">
+        {% for s in awaiting %}
+          <li>
+            <a href="{{ url_for('sessions.detail', session_id=s.id) }}">session {{ s.id }}</a>
+            {% if s.recorded_at %}({{ s.recorded_at.strftime("%Y-%m-%d") }}){% endif %}
+            <form method="post" style="display:inline"
+                  action="{{ url_for('sessions.reprocess', session_id=s.id) }}">
+              <button type="submit" class="button-quiet">Re-analyse</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  {% if not analysis.observations %}
+    <div class="empty-state">
+      No usable sessions yet. Upload recordings and tag them with the exposures
+      you want to test — the statistics build themselves from there.
+    </div>
+  {% else %}
+
+    <p class="eyebrow">Burden over time</p>
+    {% if figures.timeline %}
+      <figure class="card">
+        <img src="{{ figures.timeline.data_uri }}" alt="Ectopic-beat rate per session" style="max-width:100%">
+        <figcaption class="hint">{{ figures.timeline.caption }}</figcaption>
+      </figure>
+    {% else %}
+      <div class="card"><span class="hint">Needs at least two usable sessions.</span></div>
+    {% endif %}
+
+    {% if figures.by_tag %}
+      <p class="eyebrow">Sessions by tag</p>
+      <figure class="card">
+        <img src="{{ figures.by_tag.data_uri }}" alt="Per-session rates, tagged vs untagged" style="max-width:100%">
+        <figcaption class="hint">{{ figures.by_tag.caption }}</figcaption>
+      </figure>
+    {% endif %}
+
+    {% if figures.hour %}
+      <p class="eyebrow">Time of day</p>
+      <figure class="card">
+        <img src="{{ figures.hour.data_uri }}" alt="Ectopy rate by clock hour" style="max-width:100%">
+        <figcaption class="hint">{{ figures.hour.caption }}
+          {% if profile.n_sessions_skipped %}
+            {{ profile.n_sessions_skipped }} session(s) lack cached event times and are not in this figure.
+          {% endif %}
+        </figcaption>
+      </figure>
+    {% endif %}
+
+    <p class="eyebrow">Per-tag comparison</p>
+    {% if figures.forest %}
+      <figure class="card">
+        <img src="{{ figures.forest.data_uri }}" alt="Rate ratios with confidence intervals" style="max-width:100%">
+        <figcaption class="hint">{{ figures.forest.caption }}</figcaption>
+      </figure>
+    {% endif %}
+    {% if analysis.effects %}
+      <div class="card">
+        <table>
+          <thead>
+            <tr><th>Tag</th><th class="num">Sessions<br>tag / no tag</th>
+                <th class="num">Rate tagged<br>/h</th><th class="num">Rate untagged<br>/h</th>
+                <th class="num">Rate ratio (95% CI)</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            {% for e in analysis.effects %}
+              <tr>
+                <td>{{ e.tag_name }}</td>
+                <td class="num">{{ e.n_tagged }} / {{ e.n_untagged }}</td>
+                <td class="num">{{ "%.2f"|format(e.tagged_rate_per_hour) if e.tagged_rate_per_hour is not none else "—" }}</td>
+                <td class="num">{{ "%.2f"|format(e.untagged_rate_per_hour) if e.untagged_rate_per_hour is not none else "—" }}</td>
+                <td class="num">
+                  {% if e.rate_ratio is not none %}
+                    <strong>{{ "%.2f"|format(e.rate_ratio) }}</strong>
+                    ({{ "%.2f"|format(e.ci_low) }}–{{ "%.2f"|format(e.ci_high) }})
+                  {% else %}—{% endif %}
+                </td>
+                <td style="font-size:0.82rem">
+                  {% if e.status == "ok" %}negative-binomial model
+                  {% elif e.status == "insufficient_data" %}<em>{{ e.detail }}</em>
+                  {% else %}{{ e.detail }}{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="card"><span class="hint">No tagged sessions yet — tag uploads with
+        candidate exposures to start the comparison.</span></div>
+    {% endif %}
+
+    <p class="eyebrow">How to read this</p>
+    <div class="card" style="font-size:0.88rem">
+      <ul class="notes">
+        <li><strong>Model.</strong> One negative-binomial rate model per tag:
+          confirmed ectopic count per session, offset by log analysed hours, with a
+          sin/cos hour-of-day pair (ectopy has a circadian rhythm — so do most
+          exposures) and, when the data supports it, the activity group.
+          {% for note in analysis.model_notes %}<br><span class="hint">{{ note }}</span>{% endfor %}</li>
+        <li><strong>Variability context.</strong> Ectopic burden swings severalfold
+          between days within the same person (hour-to-hour variation near 50%
+          was reported as far back as Morganroth 1978, and a two-day comparison
+          needs a &gt;83% change to beat noise). Wide intervals here are honesty,
+          not weakness; a rate ratio only firms up as tagged and untagged
+          sessions accumulate over weeks.</li>
+        <li><strong>Multiple tags.</strong> Each tag is tested separately; testing
+          many tags means some intervals will exclude 1.0 by luck alone. Treat a
+          single interesting row as a hypothesis to keep testing, not a finding.</li>
+        <li><strong>Tags are self-reported</strong> and sessions are not randomized,
+          so an association can come from anything that travels with the tag
+          (time of day, activity, sleep…). For a stronger design, assign yourself
+          exposure blocks in advance — e.g. caffeine on/off in 2-day blocks, as the
+          published trigger trials do — and tag accordingly.</li>
+        <li>{{ disclaimer }}</li>
+      </ul>
+    </div>
+  {% endif %}
+{% endblock %}
