@@ -56,3 +56,56 @@ def build_ecg_from_rr(
 def peak_indices_for(beat_times_s: np.ndarray, fs_hz: float = FS_HZ) -> np.ndarray:
     """Sample indices of the known beat times (ground-truth 'detection')."""
     return np.round(beat_times_s * fs_hz).astype(np.int64)
+
+
+def make_acc_csv_bytes(
+    duration_s: float,
+    fs_hz: float = 50.0,
+    movement_bursts: list[tuple[float, float, float]] | None = None,
+    start=None,
+    delimiter: str = ";",
+    decimal: str = ".",
+    seed: int = 3,
+) -> bytes:
+    """A Polar Sensor Logger ACC export: still = gravity vector + noise.
+
+    ``movement_bursts`` is a list of ``(t0_s, t1_s, amplitude_mg)`` spans in
+    which an oscillation in the human-movement band (~1.5 Hz) is added, so
+    tests know exactly which epochs contain movement.
+    """
+    import datetime as dt
+
+    start = start or dt.datetime(2026, 8, 14, 10, 0, tzinfo=dt.UTC)
+    n = int(duration_s * fs_hz)
+    t = np.arange(n) / fs_hz
+    rng = np.random.default_rng(seed)
+
+    # Gravity mostly on Z (lying down), a little on X, plus sensor noise.
+    x = 120.0 + rng.normal(0.0, 2.0, n)
+    y = rng.normal(0.0, 2.0, n)
+    z = 990.0 + rng.normal(0.0, 2.0, n)
+    for t0, t1, amp in movement_bursts or []:
+        span = (t >= t0) & (t < t1)
+        wobble = amp * np.sin(2 * np.pi * 1.5 * t[span])
+        x[span] += wobble
+        y[span] += 0.7 * amp * np.sin(2 * np.pi * 2.1 * t[span])
+        z[span] += 0.5 * wobble
+
+    start_ns = int(start.timestamp() * 1e9)
+    time_ns = start_ns + np.round(t * 1e9).astype(np.int64)
+
+    def fmt(v: float) -> str:
+        s = f"{v:.3f}"
+        return s.replace(".", ",") if decimal == "," else s
+
+    header = delimiter.join(
+        ["Phone timestamp", "sensor timestamp [ns]", "X [mg]", "Y [mg]", "Z [mg]"]
+    )
+    lines = [header]
+    for i in range(n):
+        lines.append(
+            delimiter.join(
+                ["", str(time_ns[i]), fmt(x[i]), fmt(y[i]), fmt(z[i])]
+            )
+        )
+    return ("\n".join(lines) + "\n").encode("utf-8")

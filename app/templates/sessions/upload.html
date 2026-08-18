@@ -60,6 +60,12 @@
       ECG CSV file
       <input type="file" name="file" accept=".csv,text/csv" required>
     </label>
+    <label>
+      Accelerometer CSV <span class="hint">optional — the Polar Sensor Logger ACC export
+        from the same recording; used by sleep analysis for movement-based wake
+        detection and ignored for other activities</span>
+      <input type="file" name="acc_file" accept=".csv,.txt,text/csv,text/plain">
+    </label>
     <div>
       <button type="submit">Upload &amp; analyse</button>
     </div>
