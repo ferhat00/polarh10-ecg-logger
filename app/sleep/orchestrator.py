@@ -127,6 +127,7 @@ def run_sleep_analysis(
     acc_path: str | None,
     ctx: PersonContext,
     config: Mapping,
+    stored_path: str | None = None,
 ) -> SleepAnalysis:
     """Stage one night with every engine that can run here."""
     analysis = SleepAnalysis()
@@ -170,7 +171,7 @@ def run_sleep_analysis(
         lambda: heuristic_engine.stage_heuristic(features),
     )
 
-    _run_optional_engines(analysis, rec, result, ctx, config)
+    _run_optional_engines(analysis, rec, result, ctx, config, stored_path)
 
     # --- movement wake-override (applies to every engine) -----------------
     if analysis.acc_epochs is not None and analysis.hypnograms:
@@ -225,9 +226,10 @@ def _run_optional_engines(
     result: PipelineResult,
     ctx: PersonContext,
     config: Mapping,
+    stored_path: str | None,
 ) -> None:
     """Optional engines: each reports an EngineStatus even when absent."""
-    from app.sleep.engines import sleepecg_engine
+    from app.sleep.engines import external_ecg_staging, sleepecg_engine
 
     _run_engine(
         analysis,
@@ -240,3 +242,21 @@ def _run_optional_engines(
             ctx.sex,
         ),
     )
+
+    def _external():
+        import tempfile
+
+        base = stored_path or tempfile.mkdtemp(prefix="ecglog-sleep-")
+        return external_ecg_staging.stage_external(
+            rec.ecg_mv,
+            rec.sampling_rate_hz,
+            result.peak_times_s,
+            rec.start_time,
+            rec.duration_s,
+            ctx.age_years,
+            ctx.sex,
+            base,
+            config,
+        )
+
+    _run_engine(analysis, external_ecg_staging.status(config), _external)

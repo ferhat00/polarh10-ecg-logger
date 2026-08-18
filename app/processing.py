@@ -89,6 +89,7 @@ def _process(app: Flask, session_id: int) -> None:
                     session.acc_stored_path,
                     PersonContext.from_person(session.person),
                     app.config,
+                    stored_path=session.stored_path,
                 )
 
             _persist(session, rec, result, sleep)
