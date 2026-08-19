@@ -385,6 +385,19 @@ def _kpis(
                 f"{max(hrv.sdnn_per_window_ms):.0f} ms"
             )
         kpis.append(("SDNN (whole record)", f"{hrv.sdnn_ms:.1f} ms", note))
+    resp = result.respiration
+    if resp is not None and resp.median_brpm is not None:
+        kpis.append(
+            (
+                "Resp rate (EDR)",
+                f"{resp.median_brpm:.1f} brpm",
+                f"estimated from heartbeat + R-amplitude patterns, not measured "
+                f"airflow; p5–p95 {resp.p5_brpm:.1f}–{resp.p95_brpm:.1f} "
+                f"({resp.n_windows_used}/{resp.n_windows_total} windows; "
+                "Schaffarczyk 2022: r=0.85 vs gas exchange on this strap, "
+                "degrades at high intensity)",
+            )
+        )
     if result.events is not None:
         ev = result.events
         rate = f" ({ev.per_hour:.2f}/h)" if ev.per_hour is not None else ""

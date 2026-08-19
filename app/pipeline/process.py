@@ -30,6 +30,7 @@ from app.pipeline.engines import RPeakDetection, detect_rpeaks
 from app.pipeline.events import EctopyEvents, confirmed_ectopic_indices, extract_events
 from app.pipeline.hrv import HRVResult, compute_hrv
 from app.pipeline.quality import QualityResult, assess_quality
+from app.pipeline.respiration import RespirationResult, estimate_respiration
 from app.pipeline.rr import RRSeries, build_rr
 from app.pipeline.template import (
     BeatMorphology,
@@ -62,6 +63,8 @@ class PipelineResult:
     notes: list[str] = field(default_factory=list)
     #: Confirmed-ectopy events, grouped from the masks above (derived only).
     events: EctopyEvents | None = None
+    #: ECG-derived respiratory-rate estimate (never measured airflow).
+    respiration: RespirationResult | None = None
     #: Per *raw detected* beat: prematurity and motion state, the inputs to
     #: ectopy confirmation. The raw train is used deliberately — the Kubios
     #: iterative pass repositions the beats it classifies ectopic, so the
@@ -122,6 +125,19 @@ def run_pipeline(rec: LoadedRecording) -> PipelineResult:
 
     hrv = compute_hrv(rr)
 
+    try:
+        respiration = estimate_respiration(
+            rr, detection.ecg_clean, peaks, peak_times, quality
+        )
+        if respiration.median_brpm is not None:
+            notes.append(
+                f"EDR respiratory-rate estimate: median {respiration.median_brpm:.1f} "
+                f"brpm over {respiration.n_windows_used} quality-gated window(s)."
+            )
+    except Exception:  # noqa: BLE001 - an optional estimate must not kill the run
+        respiration = None
+        notes.append("Respiration estimation failed; no respiratory rate reported.")
+
     raw_peaks = np.clip(detection.rpeak_indices, 0, len(rec.time_s) - 1)
     raw_times = rec.time_s[raw_peaks]
     ectopy_prematurity = prematurity_series(raw_peaks, rec.sampling_rate_hz)
@@ -164,6 +180,7 @@ def run_pipeline(rec: LoadedRecording) -> PipelineResult:
         device_rr_median_abs_diff_ms=device_diff,
         notes=notes,
         events=events,
+        respiration=respiration,
         ectopy_prematurity_pct=ectopy_prematurity,
         ectopy_motion_mask=ectopy_motion,
     )

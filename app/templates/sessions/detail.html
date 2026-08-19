@@ -131,6 +131,11 @@
           <tr><th>Mean HR</th><td class="num">{{ session.metrics.mean_hr_bpm | round(0) if session.metrics.mean_hr_bpm else "—" }} bpm</td></tr>
           <tr><th>RMSSD</th><td class="num">{{ session.metrics.rmssd_ms | round(1) if session.metrics.rmssd_ms is not none else "—" }} ms</td></tr>
           <tr><th>SDNN (whole record)</th><td class="num">{{ session.metrics.sdnn_ms | round(1) if session.metrics.sdnn_ms is not none else "—" }} ms <span class="hint">trend-inclusive</span></td></tr>
+          {% if session.metrics.resp_rate_median_brpm is not none %}
+          <tr><th>Resp rate (EDR)</th>
+              <td class="num">{{ session.metrics.resp_rate_median_brpm | round(1) }} brpm
+                <span class="hint">estimated ({{ session.metrics.resp_rate_p5_brpm | round(1) }}–{{ session.metrics.resp_rate_p95_brpm | round(1) }} p5–p95), not measured airflow</span></td></tr>
+          {% endif %}
           <tr><th>Ectopic beats</th>
               <td class="num">
               {% if session.metrics.ectopy_beats_n is not none %}

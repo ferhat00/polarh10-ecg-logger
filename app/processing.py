@@ -227,6 +227,22 @@ def _persist(
         analysis = get_profile("sitting").analyze(inputs, ctx)
     hrv_censored, _ = apply_suppressions(result.hrv, analysis.suppressions)
 
+    # Detected paced/slow breathing becomes a caution BEFORE extras and the
+    # report are built: paced breathing mechanically inflates RMSSD/HF, and a
+    # session flagged this way must not read as a parasympathetic baseline.
+    resp = result.respiration
+    if resp is not None and resp.paced_breathing:
+        from app.activities.base import Suppression
+        from app.pipeline.respiration import RESPIRATION_CAUTION
+
+        analysis.cautions.append(
+            Suppression(
+                family="frequency",
+                mode="caution",
+                reason=RESPIRATION_CAUTION.format(rate=resp.paced_rate_brpm or 6.0),
+            )
+        )
+
     flags = (
         []
         if analysis.not_analysable
@@ -321,6 +337,9 @@ def _persist(
         rem_min=primary_sleep.rem_min if primary_sleep else None,
         awakenings_n=primary_sleep.awakenings_n if primary_sleep else None,
         sleep_engine=sleep.primary_engine if sleep is not None else None,
+        resp_rate_median_brpm=resp.median_brpm if resp is not None else None,
+        resp_rate_p5_brpm=resp.p5_brpm if resp is not None else None,
+        resp_rate_p95_brpm=resp.p95_brpm if resp is not None else None,
         extras=_build_extras(
             result, hrv_censored, analysis, sleep_extras, env_extras, posture
         ),
@@ -367,6 +386,9 @@ def _build_extras(
         "sleep": sleep_extras,
         "environment": env_extras,
         "posture": posture.as_extras() if posture is not None else None,
+        "respiration": (
+            result.respiration.as_extras() if result.respiration is not None else None
+        ),
         "sqi_mean": float(np.mean(sqi_values)) if sqi_values else None,
         "resting_hr_bpm": lowest_sustained_hr(result.rr),
         "activity": analysis.extras,

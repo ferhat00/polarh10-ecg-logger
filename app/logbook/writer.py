@@ -83,6 +83,13 @@ def append_session_entry(session: Session) -> None:
             metric_bits.append(sdnn)
     lines.append("- **Key metrics:** " + (" · ".join(metric_bits) if metric_bits else "—"))
 
+    if metrics and metrics.resp_rate_median_brpm is not None:
+        lines.append(
+            f"- **Respiration (EDR estimate):** median "
+            f"{metrics.resp_rate_median_brpm:.1f} brpm "
+            f"({metrics.resp_rate_p5_brpm:.1f}–{metrics.resp_rate_p95_brpm:.1f})"
+        )
+
     activity_bits = _activity_line(extras.get("activity") or {})
     if activity_bits:
         lines.append("- **Activity-specific:** " + " · ".join(activity_bits))
