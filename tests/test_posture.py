@@ -7,7 +7,6 @@ gravity ≈ +Z, torso long axis = Y, left–right = X.
 
 from __future__ import annotations
 
-import datetime as dt
 import io
 
 import numpy as np

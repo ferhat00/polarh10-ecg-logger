@@ -19,7 +19,6 @@ from app.extensions import db
 from app.models import ActivityType, Metrics, Person, ProcessingStatus, Session
 from app.pipeline.respiration import (
     MIN_WINDOWS,
-    RespirationResult,
     estimate_respiration,
 )
 from app.pipeline.rr import RRSeries
