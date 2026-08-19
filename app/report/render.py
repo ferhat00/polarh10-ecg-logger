@@ -21,6 +21,7 @@ from app.activities.base import ActivityAnalysis
 from app.activities.registry import ResolvedActivity
 from app.ingest.loader import LoadedRecording
 from app.pipeline.hrv import HRVResult
+from app.pipeline.posture import POSTURE_DISCLAIMER, PostureResult
 from app.pipeline.process import PipelineResult
 from app.report import figures as fig
 from app.report import sleep_figures
@@ -112,6 +113,10 @@ class ReportData:
     sleep_figures: dict[str, fig.Figure | None] = field(default_factory=dict)
     sleep_kpis: list[tuple[str, str, str]] = field(default_factory=list)
     sleep_disclaimer: str = SLEEP_DISCLAIMER
+    # --- posture (recordings with an ACC companion file) ------------------
+    posture: PostureResult | None = None
+    posture_figure: fig.Figure | None = None
+    posture_disclaimer: str = POSTURE_DISCLAIMER
     fonts_css: str = ""
     no_flags_statement: str = NO_FLAGS_STATEMENT
     interval_explanation: str = INTERVAL_METRICS_EXPLANATION
@@ -127,6 +132,7 @@ def build_report_html(
     flags: list[ScreeningFlag],
     meta: ReportMeta,
     sleep: SleepAnalysis | None = None,
+    posture: PostureResult | None = None,
 ) -> str:
     """Assemble figures + tables and render the standalone report page."""
     data = ReportData(
@@ -137,7 +143,10 @@ def build_report_html(
         activity=activity,
         flags=flags,
         sleep=sleep,
+        posture=posture,
     )
+    if posture is not None:
+        data.posture_figure = fig.posture_strip(posture)
     data.strips = _build_strips(rec, result)
     data.figures = {
         "hr": fig.hr_timeseries(

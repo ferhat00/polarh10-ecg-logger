@@ -482,3 +482,72 @@ def quality_traces(quality: QualityResult) -> Figure | None:
         "Per-window signal quality index and baseline-wander RMS (0.7 Hz low-pass "
         "of the raw signal — the motion proxy). Shaded spans are excluded.",
     )
+
+
+def posture_strip(posture) -> Figure | None:
+    """Colored per-epoch posture band from the chest accelerometer.
+
+    ``posture`` is an ``app.pipeline.posture.PostureResult``; imported late
+    to keep this module free of pipeline imports it does not otherwise need.
+    """
+    from app.pipeline.posture import CODE_NAMES
+
+    if posture is None or len(posture.codes) == 0 or not posture.pct_by_posture:
+        return None
+
+    palette = {
+        "unknown": "#D8D3CE",
+        "supine": ACCENT,
+        "prone": "#7A9E7E",
+        "left": "#4E6E8E",
+        "right": "#8E6E4E",
+        "upright": "#B08948",
+        "moving": WARN,
+    }
+    fig, ax = plt.subplots(figsize=(9.0, 1.5), dpi=_DPI)
+    fig.patch.set_facecolor(PAPER)
+    _style_axes(ax)
+
+    t_min = posture.epoch_start_s / 60.0
+    epoch_min = (
+        (posture.epoch_start_s[1] - posture.epoch_start_s[0]) / 60.0
+        if len(posture.epoch_start_s) > 1
+        else 0.5
+    )
+    # Draw contiguous same-posture runs (one patch per run, not per epoch).
+    seen: dict[str, bool] = {}
+    run_start = 0
+    codes = posture.codes
+    for i in range(1, len(codes) + 1):
+        if i < len(codes) and codes[i] == codes[run_start]:
+            continue
+        name = CODE_NAMES.get(int(codes[run_start]), "unknown")
+        ax.barh(
+            0,
+            (i - run_start) * epoch_min,
+            left=t_min[run_start],
+            height=1.0,
+            color=palette.get(name, "#D8D3CE"),
+            edgecolor="none",
+            label=None if name in seen else name,
+        )
+        seen[name] = True
+        run_start = i
+    ax.set_yticks([])
+    ax.set_xlabel("minutes")
+    ax.set_xlim(0, float(t_min[-1]) + epoch_min)
+    ax.legend(
+        loc="upper right", ncols=min(len(seen), 7), fontsize=7, frameon=False,
+        bbox_to_anchor=(1.0, 1.45),
+    )
+    fig.subplots_adjust(top=0.68, bottom=0.42, left=0.04, right=0.99)
+    summary = " / ".join(
+        f"{name} {pct:.0f}%" for name, pct in sorted(
+            posture.pct_by_posture.items(), key=lambda kv: -kv[1]
+        )
+    )
+    return _finish(
+        fig,
+        f"Posture per 30 s epoch, estimated from the strap's orientation "
+        f"relative to gravity ({summary}; {posture.n_transitions} change(s)).",
+    )

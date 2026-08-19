@@ -127,6 +127,15 @@ def append_session_entry(session: Session) -> None:
         context_bits.append(f"sleep quality {session.sleep_quality_1_5}/5")
     if context_bits:
         lines.append("- **Context fields:** " + " · ".join(context_bits))
+    posture = extras.get("posture") or {}
+    if posture.get("dominant"):
+        pct = posture.get("pct_by_posture") or {}
+        posture_bits = [
+            f"{name} {value:.0f}%"
+            for name, value in sorted(pct.items(), key=lambda kv: -kv[1])
+        ]
+        posture_bits.append(f"{posture.get('n_transitions', 0)} change(s)")
+        lines.append("- **Posture (ACC):** " + " · ".join(posture_bits))
     if session.env_fetched_at:
         env_line = format_environment_line(session)
         if env_line:

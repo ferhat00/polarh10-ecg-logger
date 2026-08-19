@@ -33,6 +33,7 @@ from app.models import ExcludedSegment, Flag, Metrics, ProcessingStatus, Session
 from app.pipeline.engines import PipelineError
 from app.pipeline.events import EVENT_KIND_CODES
 from app.pipeline.hrv import HRVResult
+from app.pipeline.posture import PostureResult
 from app.pipeline.process import PipelineResult, run_pipeline
 from app.report.render import ReportMeta, build_report_html
 from app.screening.rules import run_screening
@@ -76,6 +77,11 @@ def _process(app: Flask, session_id: int) -> None:
             rec = load_polar_csv(session.stored_path, overrides=overrides)
             result = run_pipeline(rec)
 
+            # The ACC companion file is parsed once and feeds two consumers:
+            # posture classification (any activity) and sleep staging's
+            # movement data. Failures never fail the session.
+            acc_loaded, acc_error, acc_counts, posture = _analyze_acc(app, session, rec)
+
             # Sleep staging is a processing step, gated on the profile: it
             # needs the recording start time, the R-peak train, the raw ECG,
             # the optional ACC file, and app config — none of which belong
@@ -92,10 +98,13 @@ def _process(app: Flask, session_id: int) -> None:
                     PersonContext.from_person(session.person),
                     app.config,
                     stored_path=session.stored_path,
+                    acc=acc_loaded,
+                    acc_error=acc_error,
+                    acc_epochs=acc_counts,
                 )
 
             env_extras = _maybe_fetch_environment(app, session, rec)
-            _persist(session, rec, result, sleep, env_extras=env_extras)
+            _persist(session, rec, result, sleep, env_extras=env_extras, posture=posture)
             session.processing_status = ProcessingStatus.DONE
             # Refresh relationships so the log entry sees this run's rows.
             db.session.flush()
@@ -114,6 +123,34 @@ def _process(app: Flask, session_id: int) -> None:
             session.processing_status = ProcessingStatus.ERROR
             session.error_message = f"Unexpected error: {exc}"[:2000]
         db.session.commit()
+
+
+def _analyze_acc(app: Flask, session: Session, rec: LoadedRecording):
+    """Load the optional ACC file once; derive movement counts and posture.
+
+    Returns ``(acc, acc_error, acc_counts, posture)`` — all ``None`` when no
+    ACC file exists, and never raises: a bad companion file costs its derived
+    features, not the session.
+    """
+    from app.ingest.acc_loader import load_polar_acc_csv
+    from app.pipeline.posture import classify_posture
+    from app.sleep.actigraphy import activity_counts
+    from app.sleep.stages import make_epoch_grid
+
+    if not session.acc_stored_path:
+        return None, None, None, None
+    try:
+        acc = load_polar_acc_csv(session.acc_stored_path)
+    except LoaderError as exc:
+        return None, str(exc), None, None
+    try:
+        n_epochs = len(make_epoch_grid(rec.duration_s))
+        acc_counts = activity_counts(acc, rec.start_time, n_epochs)
+        posture = classify_posture(acc, rec.start_time, n_epochs, acc_epochs=acc_counts)
+    except Exception as exc:  # noqa: BLE001 - derived features are optional
+        app.logger.warning("ACC analysis failed for session %s: %s", session.id, exc)
+        return acc, None, None, None
+    return acc, None, acc_counts, posture
 
 
 def _maybe_fetch_environment(app: Flask, session: Session, rec: LoadedRecording) -> dict | None:
@@ -173,6 +210,7 @@ def _persist(
     result: PipelineResult,
     sleep: SleepAnalysis | None = None,
     env_extras: dict | None = None,
+    posture: PostureResult | None = None,
 ) -> None:
     """Store DB rows, the .npz cache, and the rendered report."""
     person = session.person
@@ -208,6 +246,16 @@ def _persist(
     session.reduced_confidence = result.correction.reduced_confidence
     session.excluded_s = result.quality.excluded_total_s
     session.analysed_s = result.quality.analysed_total_s
+
+    # ACC posture autofill — only when the user left the field unset, and
+    # only for the lying postures the sensor can actually distinguish.
+    if posture is not None and session.body_position is None:
+        from app.pipeline.posture import autofill_position
+
+        auto = autofill_position(posture)
+        if auto is not None:
+            session.body_position = auto
+            session.body_position_source = "acc"
 
     # --- metrics (replace any previous run's row) -------------------------
     if session.metrics is not None:
@@ -273,7 +321,9 @@ def _persist(
         rem_min=primary_sleep.rem_min if primary_sleep else None,
         awakenings_n=primary_sleep.awakenings_n if primary_sleep else None,
         sleep_engine=sleep.primary_engine if sleep is not None else None,
-        extras=_build_extras(result, hrv_censored, analysis, sleep_extras, env_extras),
+        extras=_build_extras(
+            result, hrv_censored, analysis, sleep_extras, env_extras, posture
+        ),
     )
     db.session.add(metrics)
 
@@ -296,8 +346,10 @@ def _persist(
             )
         )
 
-    _write_cache(session, result, sleep)
-    _write_report(session, rec, result, hrv_censored, analysis, resolved, flags, sleep)
+    _write_cache(session, result, sleep, posture)
+    _write_report(
+        session, rec, result, hrv_censored, analysis, resolved, flags, sleep, posture
+    )
 
 
 def _build_extras(
@@ -306,6 +358,7 @@ def _build_extras(
     analysis,
     sleep_extras: dict | None = None,
     env_extras: dict | None = None,
+    posture: PostureResult | None = None,
 ) -> dict:
     sqi_values = [
         w.sqi_mean for w in result.quality.windows if not np.isnan(w.sqi_mean)
@@ -313,6 +366,7 @@ def _build_extras(
     return {
         "sleep": sleep_extras,
         "environment": env_extras,
+        "posture": posture.as_extras() if posture is not None else None,
         "sqi_mean": float(np.mean(sqi_values)) if sqi_values else None,
         "resting_hr_bpm": lowest_sustained_hr(result.rr),
         "activity": analysis.extras,
@@ -356,15 +410,19 @@ def _ectopy_extras(result: PipelineResult) -> dict | None:
 
 
 #: Bumped when the cache gains arrays newer code depends on. Version 2 added
-#: the morphology and ectopy-event arrays; version 3 adds the sleep-staging
-#: and accelerometer arrays (present only on sleep sessions). Caches without
-#: a version predate the events pipeline and load_cached_events() returns
-#: None so the UI can offer a reprocess.
-CACHE_VERSION = 3
+#: the morphology and ectopy-event arrays; version 3 added the sleep-staging
+#: and accelerometer arrays (present only on sleep sessions); version 4 adds
+#: the posture arrays (present when an ACC file accompanied the recording).
+#: Caches without a version predate the events pipeline and
+#: load_cached_events() returns None so the UI can offer a reprocess.
+CACHE_VERSION = 4
 
 
 def _write_cache(
-    session: Session, result: PipelineResult, sleep: SleepAnalysis | None = None
+    session: Session,
+    result: PipelineResult,
+    sleep: SleepAnalysis | None = None,
+    posture: PostureResult | None = None,
 ) -> None:
     """Processed arrays next to the CSV — comparison views read these.
 
@@ -389,6 +447,9 @@ def _write_cache(
         sleep_arrays["acc_epoch_start_s"] = sleep.acc_epochs.epoch_start_s
         sleep_arrays["acc_counts"] = sleep.acc_epochs.counts
         sleep_arrays["acc_coverage"] = sleep.acc_epochs.coverage
+    if posture is not None:
+        sleep_arrays["posture_epoch_start_s"] = posture.epoch_start_s
+        sleep_arrays["posture_codes"] = posture.codes
 
     np.savez_compressed(
         cache_path_for(session),
@@ -455,6 +516,7 @@ def _write_report(
     resolved,
     flags,
     sleep: SleepAnalysis | None = None,
+    posture: PostureResult | None = None,
 ) -> None:
     meta = ReportMeta(
         person_name=session.person.name,
@@ -471,6 +533,7 @@ def _write_report(
         environment_line=format_environment_line(session),
     )
     html = build_report_html(
-        rec, result, hrv_censored, analysis, resolved, flags, meta, sleep=sleep
+        rec, result, hrv_censored, analysis, resolved, flags, meta, sleep=sleep,
+        posture=posture,
     )
     report_path_for(session).write_text(html, encoding="utf-8")

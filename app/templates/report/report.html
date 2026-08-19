@@ -292,6 +292,12 @@ ul.notes { font-size: 0.82rem; color: #444; }
 <figure><img src="{{ d.figures.quality.data_uri }}" alt="Quality and motion traces"><figcaption>{{ d.figures.quality.caption }}</figcaption></figure>
 {% endif %}
 
+{% if d.posture_figure %}
+<p class="eyebrow">{{ "Sleep position" if d.sleep else "Posture" }}</p>
+<figure><img src="{{ d.posture_figure.data_uri }}" alt="Posture strip"><figcaption>{{ d.posture_figure.caption }}</figcaption></figure>
+<p class="note">{{ d.posture_disclaimer }}</p>
+{% endif %}
+
 {% if d.extras_rows %}
 <p class="eyebrow">Activity-specific metrics</p>
 <div class="card">
