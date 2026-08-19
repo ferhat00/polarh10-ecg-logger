@@ -30,6 +30,8 @@ def _fake_done_session(
     ectopy_n: int | None,
     tags: list[TriggerTag] = (),
     analysed_s: float = 3600.0,
+    rmssd_ms: float | None = None,
+    env_temp_c: float | None = None,
 ) -> Session:
     s = Session(
         person_id=person.id,
@@ -40,6 +42,7 @@ def _fake_done_session(
         analysed_s=analysed_s,
         duration_s=analysed_s,
         recorded_at=BASE_T + dt.timedelta(days=i, hours=i % 5),
+        env_temp_c=env_temp_c,
     )
     db.session.add(s)
     db.session.flush()
@@ -51,10 +54,85 @@ def _fake_done_session(
             ectopy_per_hour=(
                 ectopy_n / (analysed_s / 3600.0) if ectopy_n is not None else None
             ),
+            rmssd_ms=rmssd_ms,
         )
     )
     db.session.commit()
     return s
+
+
+class TestOutcomeSelection:
+    def test_dropdown_renders_all_outcomes(
+        self, client: FlaskClient, person: Person
+    ) -> None:
+        page = client.get(f"/triggers/{person.id}")
+        html = page.data.decode()
+        assert 'name="outcome"' in html
+        assert "Ectopy burden" in html
+        assert "RMSSD (vagal HRV)" in html
+        assert "Resting HR" in html
+
+    def test_invalid_outcome_falls_back(
+        self, client: FlaskClient, person: Person
+    ) -> None:
+        page = client.get(f"/triggers/{person.id}?outcome=nonsense")
+        assert page.status_code == 200
+        assert b"Unknown outcome" in page.data
+
+    def test_rmssd_outcome_fits_and_labels(
+        self, client: FlaskClient, app: Flask, person: Person
+    ) -> None:
+        ensure_builtin_trigger_tags()
+        alcohol = db.session.query(TriggerTag).filter_by(slug="alcohol").one()
+        for i in range(6):
+            _fake_done_session(person, i, ectopy_n=0, tags=[alcohol], rmssd_ms=30.0 + i)
+        for i in range(6, 12):
+            _fake_done_session(person, i, ectopy_n=0, rmssd_ms=45.0 + i)
+
+        page = client.get(f"/triggers/{person.id}?outcome=ln_rmssd")
+        assert page.status_code == 200
+        html = page.data.decode()
+        assert "% change (95% CI)" in html
+        assert "linear model" in html
+        # Ectopy-specific figures are not shown for HRV outcomes.
+        assert "Burden over time" not in html
+
+    def test_missing_outcome_accounted(
+        self, client: FlaskClient, app: Flask, person: Person
+    ) -> None:
+        ensure_builtin_trigger_tags()
+        for i in range(3):
+            _fake_done_session(person, i, ectopy_n=0, rmssd_ms=40.0)
+        _fake_done_session(person, 3, ectopy_n=0, rmssd_ms=None)
+
+        page = client.get(f"/triggers/{person.id}?outcome=ln_rmssd")
+        html = page.data.decode()
+        assert "Missing this outcome" in html
+        assert "1 session(s) have no usable RMSSD" in html
+
+
+class TestEnvironmentSection:
+    def test_hidden_below_threshold(
+        self, client: FlaskClient, app: Flask, person: Person
+    ) -> None:
+        for i in range(5):
+            _fake_done_session(person, i, ectopy_n=1, env_temp_c=20.0 + i)
+        page = client.get(f"/triggers/{person.id}")
+        assert b"Environment context" not in page.data
+
+    def test_shown_with_enough_env_sessions(
+        self, client: FlaskClient, app: Flask, person: Person
+    ) -> None:
+        from app.triggers.stats import MIN_ENV_OBSERVATIONS
+
+        for i in range(MIN_ENV_OBSERVATIONS + 2):
+            _fake_done_session(person, i, ectopy_n=i, env_temp_c=12.0 + i)
+        page = client.get(f"/triggers/{person.id}")
+        html = page.data.decode()
+        assert "Environment context" in html
+        assert "Spearman" in html
+        assert "tertile" in html
+        assert "Descriptive only" in html
 
 
 class TestDashboard:

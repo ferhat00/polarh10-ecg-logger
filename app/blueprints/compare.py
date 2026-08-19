@@ -125,6 +125,35 @@ def trends(person_id: int, comparison_key: str) -> str:
             "ln(RMSSD) per session over time — the trend-tracking form; raw RMSSD "
             "is right-skewed.",
         )
+
+    # Environment context under the HRV timeline — separate aligned figures
+    # (never a dual axis), shown only when enough sessions carry data.
+    n_points = len(data.points)
+    env_n = {"temp": 0, "pm25": 0}
+    temps = [p.env_temp_c for p in data.points]
+    pm25s = [p.env_pm25_ugm3 for p in data.points]
+    env_n["temp"] = sum(1 for v in temps if v is not None)
+    env_n["pm25"] = sum(1 for v in pm25s if v is not None)
+    if env_n["temp"] >= 3:
+        figures["env_temp"] = compare_figures.trend_figure(
+            dates,
+            temps,
+            None,
+            "°C",
+            f"Temperature at the recording's time and home location — context "
+            f"for the timeline above ({env_n['temp']} of {n_points} sessions "
+            "have environment data).",
+        )
+    if env_n["pm25"] >= 3:
+        figures["env_pm25"] = compare_figures.trend_figure(
+            dates,
+            pm25s,
+            None,
+            "PM2.5 (µg/m³)",
+            f"PM2.5 at the recording's time and home location — context for "
+            f"the timeline above ({env_n['pm25']} of {n_points} sessions have "
+            "environment data).",
+        )
     return render_template(
         "compare/trends.html", person=person, data=data, figures=figures
     )

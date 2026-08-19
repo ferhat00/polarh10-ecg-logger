@@ -25,10 +25,24 @@
       {% endif %}
     {% endfor %}
 
+    {% if figures.get("env_temp") or figures.get("env_pm25") %}
+      <p class="eyebrow">Environment context</p>
+      {% for key in ("env_temp", "env_pm25") %}
+        {% if figures.get(key) %}
+          <figure class="card">
+            <img src="{{ figures[key].data_uri }}" alt="{{ key }} trend" style="max-width:100%">
+            <figcaption class="hint">{{ figures[key].caption }}</figcaption>
+          </figure>
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+
+    {% set has_env = data.points | selectattr("env_temp_c", "ne", none) | list | length > 0 %}
     <p class="eyebrow">Sessions</p>
     <div class="card" style="overflow-x:auto">
       <table>
-        <thead><tr><th>Session</th><th>Date</th><th>Resting HR</th><th>RMSSD</th><th>ln(RMSSD)</th></tr></thead>
+        <thead><tr><th>Session</th><th>Date</th><th>Resting HR</th><th>RMSSD</th><th>ln(RMSSD)</th>
+          {% if has_env %}<th>Temp</th><th>PM2.5</th>{% endif %}</tr></thead>
         <tbody>
           {% for p in data.points %}
             <tr>
@@ -37,6 +51,10 @@
               <td class="num">{{ "%.0f"|format(p.resting_hr_bpm) if p.resting_hr_bpm else "—" }}</td>
               <td class="num">{{ "%.1f"|format(p.rmssd_ms) if p.rmssd_ms else "—" }}</td>
               <td class="num">{{ "%.2f"|format(p.ln_rmssd) if p.ln_rmssd else "—" }}</td>
+              {% if has_env %}
+                <td class="num">{{ "%.1f °C"|format(p.env_temp_c) if p.env_temp_c is not none else "—" }}</td>
+                <td class="num">{{ "%.0f"|format(p.env_pm25_ugm3) if p.env_pm25_ugm3 is not none else "—" }}</td>
+              {% endif %}
             </tr>
           {% endfor %}
         </tbody>

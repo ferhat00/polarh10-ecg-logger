@@ -121,11 +121,20 @@ def hour_profile_figure(profile: HourProfile) -> Figure | None:
     )
 
 
-def forest(effects: list[TriggerEffect]) -> Figure | None:
-    """Rate ratios with 95 % CIs on a log axis; estimated rows only."""
-    rows = [e for e in effects if e.rate_ratio is not None and e.ci_low and e.ci_high]
+def forest(effects: list[TriggerEffect], outcome=None) -> Figure | None:
+    """Per-tag effects with 95 % CIs; estimated rows only.
+
+    Axis scale and reference line follow the outcome: rate ratios draw on a
+    log axis around 1.0, %-change and Δ effects on a linear axis around 0.
+    """
+    rows = [
+        e
+        for e in effects
+        if e.rate_ratio is not None and e.ci_low is not None and e.ci_high is not None
+    ]
     if not rows:
         return None
+    kind = rows[0].effect_kind
     fig, ax = plt.subplots(figsize=(8.4, 0.9 + 0.5 * len(rows)), dpi=150)
     fig.patch.set_facecolor(PAPER)
     _style_axes(ax)
@@ -133,19 +142,65 @@ def forest(effects: list[TriggerEffect]) -> Figure | None:
         color = ACCENT if e.status == "ok" else WARN
         ax.plot([e.ci_low, e.ci_high], [i, i], color=color, lw=1.6)
         ax.plot([e.rate_ratio], [i], marker="s", color=color, markersize=6)
-    ax.axvline(1.0, color=INK, lw=0.8, linestyle="--")
     ax.set_yticks(
         range(len(rows)),
         [f"{e.tag_name} (n={e.n_tagged}/{e.n_untagged})" for e in rows],
         fontsize=8,
     )
-    ax.set_xscale("log")
-    ax.set_xlabel("rate ratio (tagged vs untagged), 95% CI — log scale")
     ax.grid(color=GRID_SMALL, lw=0.4, axis="x")
+
+    if kind == "rate_ratio":
+        ax.axvline(1.0, color=INK, lw=0.8, linestyle="--")
+        ax.set_xscale("log")
+        ax.set_xlabel("rate ratio (tagged vs untagged), 95% CI — log scale")
+        caption = (
+            "Squares right of the dashed line mean more ectopic beats per hour "
+            "in tagged sessions; intervals crossing 1.0 are compatible with no "
+            "association. Orange rows used the Poisson fallback."
+        )
+    elif kind == "pct_change":
+        ax.axvline(0.0, color=INK, lw=0.8, linestyle="--")
+        ax.set_xlabel("% change in RMSSD (tagged vs untagged), 95% CI")
+        caption = (
+            "Squares right of the dashed line mean higher RMSSD in tagged "
+            "sessions; intervals crossing 0 are compatible with no association."
+        )
+    else:  # delta
+        ax.axvline(0.0, color=INK, lw=0.8, linestyle="--")
+        ax.set_xlabel("Δ resting HR (bpm, tagged vs untagged), 95% CI")
+        caption = (
+            "Squares right of the dashed line mean a higher resting HR in "
+            "tagged sessions; intervals crossing 0 are compatible with no "
+            "association."
+        )
+    fig.tight_layout()
+    return _finish(fig, caption)
+
+
+def env_scatter(assoc, outcome) -> Figure | None:
+    """Outcome vs one environment variable — descriptive scatter only."""
+    if not assoc.points:
+        return None
+    fig, ax = plt.subplots(figsize=(5.6, 3.2), dpi=150)
+    fig.patch.set_facecolor(PAPER)
+    _style_axes(ax)
+    x = [p[0] for p in assoc.points]
+    y = [p[1] for p in assoc.points]
+    ax.scatter(x, y, s=18, color=ACCENT, alpha=0.75, edgecolors="none")
+    ax.set_xlabel(f"{assoc.var_label} ({assoc.unit})")
+    ax.set_ylabel(f"{outcome.label} ({outcome.group_unit})")
+    ax.grid(color=GRID_SMALL, lw=0.4)
+    rho_text = (
+        f"Spearman ρ = {assoc.rho:+.2f} (n = {assoc.n})"
+        if assoc.rho is not None
+        else f"n = {assoc.n}"
+    )
+    ax.set_title(rho_text, fontsize=9, color=INK)
     fig.tight_layout()
     return _finish(
         fig,
-        "Squares right of the dashed line mean more ectopic beats per hour in "
-        "tagged sessions; intervals crossing 1.0 are compatible with no "
-        "association. Orange rows used the Poisson fallback.",
+        f"{outcome.label} per session against {assoc.var_label.lower()} at the "
+        f"recording's time and home location ({rho_text}) — descriptive only; "
+        "no model is fitted at this sample size, and published environmental "
+        "effects are percent-level (see docs/CONTEXT_METRICS.md).",
     )

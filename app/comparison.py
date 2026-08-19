@@ -229,6 +229,9 @@ class TrendPoint:
     resting_hr_bpm: float | None
     rmssd_ms: float | None
     ln_rmssd: float | None
+    #: Environment context at recording time (opt-in lookup; often None).
+    env_temp_c: float | None = None
+    env_pm25_ugm3: float | None = None
 
 
 @dataclass
@@ -266,6 +269,8 @@ def build_trend(sessions: list[Session], comparison_key: str) -> TrendData:
                 resting_hr_bpm=resting_hr_bpm(rr) if rr is not None else None,
                 rmssd_ms=rmssd,
                 ln_rmssd=math.log(rmssd) if rmssd and rmssd > 0 else None,
+                env_temp_c=s.env_temp_c,
+                env_pm25_ugm3=s.env_pm25_ugm3,
             )
         )
 
