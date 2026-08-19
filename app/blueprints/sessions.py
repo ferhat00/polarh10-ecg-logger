@@ -23,7 +23,15 @@ from sqlalchemy import select
 from app.activities.seed import ensure_builtin_activity_types
 from app.extensions import db
 from app.ingest.loader import CANONICAL_COLUMNS
-from app.models import ActivityType, Person, ProcessingStatus, Session, TriggerTag, slugify
+from app.models import (
+    BODY_POSITIONS,
+    ActivityType,
+    Person,
+    ProcessingStatus,
+    Session,
+    TriggerTag,
+    slugify,
+)
 from app.processing import report_path_for, submit_processing
 from app.triggers.seed import ensure_builtin_trigger_tags
 
@@ -64,6 +72,33 @@ def _selected_tags(form) -> list[TriggerTag]:
             db.session.flush()
         tags[tag.id] = tag
     return list(tags.values())
+
+
+def _apply_context_fields(session: Session, form) -> None:
+    """Set the optional structured context columns from a submitted form.
+
+    Invalid values are treated as absent rather than rejected — these fields
+    are optional context, and a failed upload over a malformed drinks count
+    would cost the user a re-upload of a half-gigabyte file.
+    """
+    session.context_note = (form.get("context_note") or "").strip()[:2000] or None
+
+    position = form.get("body_position") or None
+    if position in BODY_POSITIONS:
+        session.body_position = position
+        session.body_position_source = "user"
+    elif not position:
+        # Explicit "not recorded" clears a previous user value; an ACC-derived
+        # value survives (the accelerometer evidence didn't change).
+        if session.body_position_source == "user":
+            session.body_position = None
+            session.body_position_source = None
+
+    drinks = form.get("alcohol_drinks_24h", type=int)
+    session.alcohol_drinks_24h = drinks if drinks is not None and 0 <= drinks <= 30 else None
+
+    quality = form.get("sleep_quality_1_5", type=int)
+    session.sleep_quality_1_5 = quality if quality is not None and 1 <= quality <= 5 else None
 
 
 @bp.route("/upload", methods=["GET", "POST"])
@@ -112,7 +147,8 @@ def upload() -> str | Response:
                 flash(e, "error")
             return render_template(
                 "sessions/upload.html", people=people, activities=activities,
-                trigger_tags=trigger_tags, form=request.form,
+                trigger_tags=trigger_tags, body_positions=BODY_POSITIONS,
+                form=request.form,
                 selected_tag_ids=request.form.getlist("trigger_tags"),
             )
 
@@ -130,11 +166,11 @@ def upload() -> str | Response:
         session = Session(
             person_id=person.id,
             activity_type_id=activity.id,
-            context_note=(request.form.get("context_note") or "").strip() or None,
             original_filename=original_name,
             stored_path="",
             file_sha256=sha256,
         )
+        _apply_context_fields(session, request.form)
         db.session.add(session)
         db.session.flush()  # allocate session.id for the storage path
         session.trigger_tags = _selected_tags(request.form)
@@ -160,7 +196,8 @@ def upload() -> str | Response:
 
     return render_template(
         "sessions/upload.html", people=people, activities=activities,
-        trigger_tags=trigger_tags, form={}, selected_tag_ids=[],
+        trigger_tags=trigger_tags, body_positions=BODY_POSITIONS,
+        form={}, selected_tag_ids=[],
     )
 
 
@@ -176,6 +213,7 @@ def detail(session_id: int) -> str:
         questions=questions,
         extras=extras or {},
         trigger_tags=_all_trigger_tags(),
+        body_positions=BODY_POSITIONS,
         has_report=report_path_for(session).exists() if session.stored_path else False,
     )
 
@@ -186,6 +224,20 @@ def edit_tags(session_id: int) -> Response:
     session.trigger_tags = _selected_tags(request.form)
     db.session.commit()
     flash("Trigger tags updated.", "ok")
+    return redirect(url_for("sessions.detail", session_id=session.id))
+
+
+@bp.post("/<int:session_id>/context")
+def edit_context(session_id: int) -> Response:
+    """Edit the structured context fields and note after upload.
+
+    Database-driven views reflect the change immediately; the stored report
+    HTML reflects processing time and refreshes on re-analyse.
+    """
+    session = db.get_or_404(Session, session_id)
+    _apply_context_fields(session, request.form)
+    db.session.commit()
+    flash("Context updated. The stored report refreshes on re-analyse.", "ok")
     return redirect(url_for("sessions.detail", session_id=session.id))
 
 

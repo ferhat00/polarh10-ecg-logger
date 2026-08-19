@@ -2,13 +2,29 @@
 
 Everything is configurable via environment variables but defaults to sane
 local values. All health data stays on the local filesystem — there is no
-cloud storage, telemetry, or external API of any kind.
+cloud storage or telemetry, and by default no external API call of any kind.
+The single, deliberate exception is the opt-in weather lookup: when
+``ECGLOG_WEATHER_ENABLED`` is set together with a home latitude/longitude,
+each processed session fetches historical weather/air quality from
+Open-Meteo. Only a date and the configured coordinates are ever sent; no
+health data leaves the machine, and with the flag unset (the default) the
+app never opens a network connection.
 """
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+
+def _optional_float(name: str) -> float | None:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -44,6 +60,22 @@ class Config:
         os.environ.get("ECGLOG_SLEEP_EXTERNAL_TIMEOUT_S", 1800)
     )
 
+    # --- Opt-in weather/air-quality lookup (docs/CONTEXT_METRICS.md §4) ----
+    #: OFF by default: the app makes no network call unless this is set to
+    #: 1/true/yes AND both coordinates are configured.
+    WEATHER_ENABLED: bool = os.environ.get("ECGLOG_WEATHER_ENABLED", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    #: Home location used for every lookup (recordings made elsewhere should
+    #: say so in the context note). Decimal degrees.
+    HOME_LAT: float | None = _optional_float("ECGLOG_HOME_LAT")
+    HOME_LON: float | None = _optional_float("ECGLOG_HOME_LON")
+    #: Per-request timeout; a slow lookup delays only the processing thread,
+    #: never the upload request, and a failed one never fails the session.
+    WEATHER_TIMEOUT_S: int = int(os.environ.get("ECGLOG_WEATHER_TIMEOUT_S", 10))
+
     @property
     def UPLOAD_DIR(self) -> Path:  # noqa: N802 - Flask config naming convention
         return self.DATA_DIR / "uploads"
@@ -61,3 +93,7 @@ class TestConfig(Config):
     WTF_CSRF_ENABLED: bool = False
     #: Run session processing inline instead of on a thread (deterministic).
     PROCESS_SYNC: bool = True
+    #: Tests never touch the network, whatever the developer's env says.
+    WEATHER_ENABLED: bool = False
+    HOME_LAT: float | None = None
+    HOME_LON: float | None = None

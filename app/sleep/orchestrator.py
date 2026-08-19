@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass, field
 import numpy as np
 
 from app.activities.base import PersonContext
-from app.ingest.acc_loader import load_polar_acc_csv
+from app.ingest.acc_loader import LoadedAcc, load_polar_acc_csv
 from app.ingest.exceptions import LoaderError
 from app.ingest.loader import LoadedRecording
 from app.pipeline.process import PipelineResult
@@ -128,8 +128,16 @@ def run_sleep_analysis(
     ctx: PersonContext,
     config: Mapping,
     stored_path: str | None = None,
+    acc: LoadedAcc | None = None,
+    acc_error: str | None = None,
+    acc_epochs: AccEpochs | None = None,
 ) -> SleepAnalysis:
-    """Stage one night with every engine that can run here."""
+    """Stage one night with every engine that can run here.
+
+    Processing pre-loads the ACC file once (it also feeds posture
+    classification) and passes ``acc``/``acc_error``/``acc_epochs`` in;
+    ``acc_path`` remains the self-contained fallback for direct callers.
+    """
     analysis = SleepAnalysis()
     duration_s = rec.duration_s
 
@@ -144,17 +152,23 @@ def run_sleep_analysis(
     n_epochs = len(make_epoch_grid(duration_s))
 
     # --- optional accelerometer ------------------------------------------
-    if acc_path:
+    if acc is None and acc_error is None and acc_path:
         try:
             acc = load_polar_acc_csv(acc_path)
-            analysis.acc_epochs = activity_counts(acc, rec.start_time, n_epochs)
-            analysis.notes.extend(analysis.acc_epochs.notes)
         except LoaderError as exc:
-            analysis.acc_error = str(exc)
-            analysis.notes.append(
-                f"Accelerometer file could not be used: {exc} Staging ran "
-                "without movement data."
-            )
+            acc_error = str(exc)
+    if acc is not None:
+        if acc_epochs is not None and len(acc_epochs.counts) == n_epochs:
+            analysis.acc_epochs = acc_epochs
+        else:
+            analysis.acc_epochs = activity_counts(acc, rec.start_time, n_epochs)
+        analysis.notes.extend(analysis.acc_epochs.notes)
+    elif acc_error is not None:
+        analysis.acc_error = acc_error
+        analysis.notes.append(
+            f"Accelerometer file could not be used: {acc_error} Staging ran "
+            "without movement data."
+        )
 
     features = compute_epoch_features(
         result.rr, result.quality, duration_s, analysis.acc_epochs

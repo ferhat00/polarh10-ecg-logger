@@ -13,6 +13,7 @@ from pathlib import Path
 
 from flask import current_app
 
+from app.environment import format_environment_line
 from app.models import Person, Session
 
 
@@ -82,6 +83,13 @@ def append_session_entry(session: Session) -> None:
             metric_bits.append(sdnn)
     lines.append("- **Key metrics:** " + (" · ".join(metric_bits) if metric_bits else "—"))
 
+    if metrics and metrics.resp_rate_median_brpm is not None:
+        lines.append(
+            f"- **Respiration (EDR estimate):** median "
+            f"{metrics.resp_rate_median_brpm:.1f} brpm "
+            f"({metrics.resp_rate_p5_brpm:.1f}–{metrics.resp_rate_p95_brpm:.1f})"
+        )
+
     activity_bits = _activity_line(extras.get("activity") or {})
     if activity_bits:
         lines.append("- **Activity-specific:** " + " · ".join(activity_bits))
@@ -115,6 +123,30 @@ def append_session_entry(session: Session) -> None:
         lines.append("- **Notes:** " + " ".join(note_lines))
     if session.trigger_tags:
         lines.append("- **Triggers:** " + " · ".join(t.name for t in session.trigger_tags))
+    context_bits: list[str] = []
+    if session.body_position:
+        context_bits.append(
+            f"position {session.body_position} ({session.body_position_source or 'user'})"
+        )
+    if session.alcohol_drinks_24h is not None:
+        context_bits.append(f"alcohol {session.alcohol_drinks_24h} drink(s)/24 h")
+    if session.sleep_quality_1_5:
+        context_bits.append(f"sleep quality {session.sleep_quality_1_5}/5")
+    if context_bits:
+        lines.append("- **Context fields:** " + " · ".join(context_bits))
+    posture = extras.get("posture") or {}
+    if posture.get("dominant"):
+        pct = posture.get("pct_by_posture") or {}
+        posture_bits = [
+            f"{name} {value:.0f}%"
+            for name, value in sorted(pct.items(), key=lambda kv: -kv[1])
+        ]
+        posture_bits.append(f"{posture.get('n_transitions', 0)} change(s)")
+        lines.append("- **Posture (ACC):** " + " · ".join(posture_bits))
+    if session.env_fetched_at:
+        env_line = format_environment_line(session)
+        if env_line:
+            lines.append(f"- **Environment:** {env_line}")
     if session.context_note:
         lines.append(f"- **Context:** {session.context_note}")
     lines.append(

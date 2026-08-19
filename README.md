@@ -20,8 +20,12 @@ resolution returns quantisation artifacts, not physiology. Interval measurement 
 500–1000 Hz and multiple leads.
 
 All health data stays local: SQLite on disk, uploaded CSVs on the local filesystem, no
-external API calls, no telemetry, no CDN assets. The app works fully offline (fonts
-and all frontend assets are vendored).
+telemetry, no CDN assets. The app works fully offline (fonts and all frontend assets
+are vendored). The single, deliberate exception is **opt-in**: if you explicitly
+enable the weather lookup (`ECGLOG_WEATHER_ENABLED=1` plus a home latitude/longitude),
+the app fetches historical weather and air quality for each recording from
+Open-Meteo — date and coordinates are the only data sent, no health data ever leaves
+the machine, and with the flag unset (the default) no network call is ever made.
 
 The literature review behind the ectopy-statistics feature — device validation,
 detection algorithms at 130 Hz, burden variability, trigger epidemiology, and the
@@ -40,7 +44,9 @@ py -3.12 -m venv .venv               # macOS/Linux: python3.12 -m venv .venv
 
 Then open http://127.0.0.1:5000, add a person, and upload a recording. Configuration
 is environment-based with local defaults (`ECGLOG_DATA_DIR`, `ECGLOG_DATABASE_URI`,
-`ECGLOG_SECRET_KEY`, `ECGLOG_MAX_UPLOAD_BYTES`) — see `app/config.py`.
+`ECGLOG_SECRET_KEY`, `ECGLOG_MAX_UPLOAD_BYTES`; opt-in weather lookup:
+`ECGLOG_WEATHER_ENABLED`, `ECGLOG_HOME_LAT`, `ECGLOG_HOME_LON`,
+`ECGLOG_WEATHER_TIMEOUT_S`) — see `app/config.py`.
 
 Data layout (all under `data/`, which is gitignored):
 
@@ -105,6 +111,34 @@ association-not-causation caveats. Sessions processed before this feature need o
 re-analysis (button on the session page) to populate their event data. The full
 literature grounding — device validation, algorithm choices, variability numbers,
 and the experiment designs worth copying — is in [`docs/RESEARCH.md`](docs/RESEARCH.md).
+
+## Contextual metrics
+
+HRV is exquisitely sensitive to context — posture alone shifts vagal indices more
+than most interventions do, and each alcoholic drink costs measurable overnight
+HRV. Beyond trigger tags, each session can therefore carry:
+
+- **Structured context fields** (all optional): body position during the recording,
+  alcoholic drinks in the prior 24 h, and a subjective sleep-quality rating. Set
+  them at upload or edit them later from the session page.
+- **Measured posture**: when an accelerometer file accompanies the recording, the
+  app classifies trunk orientation (supine/prone/left/right/upright) per 30 s
+  epoch, reports time-in-posture, and fills the body-position field automatically
+  when a lying posture clearly dominates.
+- **Estimated respiratory rate** from the ECG itself (validated on this hardware),
+  with an automatic caution when sustained slow/paced breathing is detected —
+  because paced breathing inflates RMSSD and would otherwise masquerade as a
+  great recovery day.
+- **Environment (opt-in)**: temperature, apparent temperature, humidity, pressure,
+  daylight, and air quality (PM2.5/PM10/O₃/NO₂/AQI) window-averaged over the
+  recording, fetched from Open-Meteo when explicitly enabled (see above). A
+  `flask env-backfill` command fills in history after opting in.
+
+The trigger dashboard can correlate tags against ectopy burden, ln RMSSD, or
+resting HR, and the trends page shows environment context under the HRV timeline.
+The literature grounding for every factor — what is worth tagging, expected effect
+sizes, and what is deliberately excluded — is in
+[`docs/CONTEXT_METRICS.md`](docs/CONTEXT_METRICS.md).
 
 ## Sleep staging
 

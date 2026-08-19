@@ -40,6 +40,47 @@
       <div><button type="submit" class="button-quiet">Save tags</button></div>
     </form>
   </details>
+  <details>
+    <summary class="hint" style="cursor:pointer">Edit context</summary>
+    <form method="post" action="{{ url_for('sessions.edit_context', session_id=session.id) }}"
+          class="stack" style="margin-top:0.5rem">
+      <label>
+        Context note
+        <textarea name="context_note" rows="2">{{ session.context_note or '' }}</textarea>
+      </label>
+      <div style="display:flex; flex-wrap:wrap; gap:0.75rem 1.5rem">
+        <label>
+          Body position
+          {% if session.body_position_source == "acc" %}
+            <span class="hint">currently from the accelerometer — choosing a value overrides it</span>
+          {% endif %}
+          <select name="body_position">
+            <option value="" {{ "selected" if not session.body_position }}>not recorded</option>
+            {% for pos in body_positions %}
+              <option value="{{ pos }}" {{ "selected" if session.body_position == pos }}>{{ pos }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Alcohol, last 24 h <span class="hint">drinks</span>
+          <input type="number" name="alcohol_drinks_24h" min="0" max="30" step="1"
+                 value="{{ session.alcohol_drinks_24h if session.alcohol_drinks_24h is not none }}"
+                 style="max-width:8rem">
+        </label>
+        <label>
+          Sleep quality last night
+          <select name="sleep_quality_1_5">
+            <option value="" {{ "selected" if not session.sleep_quality_1_5 }}>not rated</option>
+            {% for score, label in [(1, "1 — very poor"), (2, "2 — poor"), (3, "3 — fair"), (4, "4 — good"), (5, "5 — very good")] %}
+              <option value="{{ score }}" {{ "selected" if session.sleep_quality_1_5 == score }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div><button type="submit" class="button-quiet">Save context</button>
+        <span class="hint">the stored report reflects processing time — re-analyse to refresh it</span></div>
+    </form>
+  </details>
 
   {% if session.processing_status in ("pending", "running") %}
     <div class="card" id="processing-card"
@@ -90,6 +131,11 @@
           <tr><th>Mean HR</th><td class="num">{{ session.metrics.mean_hr_bpm | round(0) if session.metrics.mean_hr_bpm else "—" }} bpm</td></tr>
           <tr><th>RMSSD</th><td class="num">{{ session.metrics.rmssd_ms | round(1) if session.metrics.rmssd_ms is not none else "—" }} ms</td></tr>
           <tr><th>SDNN (whole record)</th><td class="num">{{ session.metrics.sdnn_ms | round(1) if session.metrics.sdnn_ms is not none else "—" }} ms <span class="hint">trend-inclusive</span></td></tr>
+          {% if session.metrics.resp_rate_median_brpm is not none %}
+          <tr><th>Resp rate (EDR)</th>
+              <td class="num">{{ session.metrics.resp_rate_median_brpm | round(1) }} brpm
+                <span class="hint">estimated ({{ session.metrics.resp_rate_p5_brpm | round(1) }}–{{ session.metrics.resp_rate_p95_brpm | round(1) }} p5–p95), not measured airflow</span></td></tr>
+          {% endif %}
           <tr><th>Ectopic beats</th>
               <td class="num">
               {% if session.metrics.ectopy_beats_n is not none %}
@@ -117,6 +163,27 @@
           <tr><th>Accelerometer</th>
               <td class="num">{{ session.acc_original_filename }}
               <span class="badge">ACC attached</span></td></tr>
+          {% endif %}
+          {% if session.body_position or session.alcohol_drinks_24h is not none or session.sleep_quality_1_5 %}
+          <tr><th>Context</th>
+              <td class="num">
+                {% if session.body_position %}{{ session.body_position }}
+                  <span class="hint">({{ session.body_position_source or "user" }})</span>{% endif %}
+                {% if session.alcohol_drinks_24h is not none %} · alcohol {{ session.alcohol_drinks_24h }} drink(s)/24 h{% endif %}
+                {% if session.sleep_quality_1_5 %} · sleep quality {{ session.sleep_quality_1_5 }}/5{% endif %}
+              </td></tr>
+          {% endif %}
+          {% if session.env_fetched_at %}
+          <tr><th>Environment</th>
+              <td class="num">
+                {{ "%.1f °C"|format(session.env_temp_c) if session.env_temp_c is not none else "—" }}
+                {% if session.env_apparent_temp_c is not none %}(feels {{ "%.1f"|format(session.env_apparent_temp_c) }}){% endif %}
+                {% if session.env_humidity_pct is not none %} · RH {{ "%.0f%%"|format(session.env_humidity_pct) }}{% endif %}
+                {% if session.env_pressure_hpa is not none %} · {{ "%.0f hPa"|format(session.env_pressure_hpa) }}{% endif %}
+                {% if session.env_pm25_ugm3 is not none %} · PM2.5 {{ "%.0f µg/m³"|format(session.env_pm25_ugm3) }}{% endif %}
+                {% if session.env_aqi is not none %} · AQI {{ "%.0f"|format(session.env_aqi) }}{% endif %}
+                <span class="hint">{{ session.env_source }} · window-averaged</span>
+              </td></tr>
           {% endif %}
           <tr><th>Beats corrected</th><td class="num">{{ "%.2f%%"|format(session.beats_corrected_pct or 0) }}</td></tr>
           <tr><th>Engine</th><td class="num">{{ session.engine_used }}</td></tr>

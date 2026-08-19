@@ -2,13 +2,31 @@
 {% block title %}Triggers — {{ person.name }} — ECG Logger{% endblock %}
 {% block content %}
   <p class="eyebrow">Triggers</p>
-  <h1>Ectopy trigger statistics — {{ person.name }}</h1>
+  <h1>Trigger statistics — {{ person.name }}</h1>
   <p>
-    Confirmed ectopic beats per hour of analysed recording, compared between
-    sessions with and without each trigger tag. Tags are self-reported
-    exposures, so everything below is an <strong>association</strong>, not a
-    cause — and never medical advice.
+    {% if outcome.key == "ectopy" %}
+      Confirmed ectopic beats per hour of analysed recording, compared between
+      sessions with and without each trigger tag.
+    {% elif outcome.key == "ln_rmssd" %}
+      RMSSD (vagal HRV) compared between sessions with and without each
+      trigger tag, modelled on the log scale and reported as a % change.
+    {% else %}
+      Resting heart rate (lowest sustained 60 s) compared between sessions
+      with and without each trigger tag.
+    {% endif %}
+    Tags are self-reported exposures, so everything below is an
+    <strong>association</strong>, not a cause — and never medical advice.
   </p>
+
+  <form method="get" class="card" style="display:flex; align-items:center; gap:0.6rem">
+    <label for="outcome-select" style="margin:0">Outcome</label>
+    <select id="outcome-select" name="outcome" onchange="this.form.submit()">
+      {% for key, spec in outcomes.items() %}
+        <option value="{{ key }}" {{ "selected" if key == outcome.key }}>{{ spec.label }}</option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit" class="button-quiet">Show</button></noscript>
+  </form>
 
   <p class="eyebrow">Data</p>
   <div class="card">
@@ -29,6 +47,10 @@
         {% if analysis.notes.n_not_done %}
           <tr><th>Not processed</th>
               <td class="num">{{ analysis.notes.n_not_done }} session(s)</td></tr>
+        {% endif %}
+        {% if analysis.notes.n_missing_outcome %}
+          <tr><th>Missing this outcome</th>
+              <td class="num">{{ analysis.notes.n_missing_outcome }} session(s) have no usable {{ outcome.label }} value</td></tr>
         {% endif %}
       </tbody>
     </table>
@@ -61,6 +83,7 @@
     </div>
   {% else %}
 
+    {% if outcome.key == "ectopy" %}
     <p class="eyebrow">Burden over time</p>
     {% if figures.timeline %}
       <figure class="card">
@@ -69,6 +92,7 @@
       </figure>
     {% else %}
       <div class="card"><span class="hint">Needs at least two usable sessions.</span></div>
+    {% endif %}
     {% endif %}
 
     {% if figures.by_tag %}
@@ -84,7 +108,7 @@
       <figure class="card">
         <img src="{{ figures.hour.data_uri }}" alt="Ectopy rate by clock hour" style="max-width:100%">
         <figcaption class="hint">{{ figures.hour.caption }}
-          {% if profile.n_sessions_skipped %}
+          {% if profile and profile.n_sessions_skipped %}
             {{ profile.n_sessions_skipped }} session(s) lack cached event times and are not in this figure.
           {% endif %}
         </figcaption>
@@ -103,8 +127,12 @@
         <table>
           <thead>
             <tr><th>Tag</th><th class="num">Sessions<br>tag / no tag</th>
-                <th class="num">Rate tagged<br>/h</th><th class="num">Rate untagged<br>/h</th>
-                <th class="num">Rate ratio (95% CI)</th><th>Notes</th></tr>
+                <th class="num">Tagged<br>{{ outcome.group_unit }}</th><th class="num">Untagged<br>{{ outcome.group_unit }}</th>
+                <th class="num">
+                  {% if outcome.kind == "rate_ratio" %}Rate ratio (95% CI)
+                  {% elif outcome.kind == "pct_change" %}% change (95% CI)
+                  {% else %}Δ bpm (95% CI){% endif %}
+                </th><th>Notes</th></tr>
           </thead>
           <tbody>
             {% for e in analysis.effects %}
@@ -115,12 +143,20 @@
                 <td class="num">{{ "%.2f"|format(e.untagged_rate_per_hour) if e.untagged_rate_per_hour is not none else "—" }}</td>
                 <td class="num">
                   {% if e.rate_ratio is not none %}
-                    <strong>{{ "%.2f"|format(e.rate_ratio) }}</strong>
-                    ({{ "%.2f"|format(e.ci_low) }}–{{ "%.2f"|format(e.ci_high) }})
+                    {% if e.effect_kind == "pct_change" %}
+                      <strong>{{ "%+.1f%%"|format(e.rate_ratio) }}</strong>
+                      ({{ "%+.1f"|format(e.ci_low) }}–{{ "%+.1f%%"|format(e.ci_high) }})
+                    {% elif e.effect_kind == "delta" %}
+                      <strong>{{ "%+.1f"|format(e.rate_ratio) }}</strong>
+                      ({{ "%+.1f"|format(e.ci_low) }}–{{ "%+.1f"|format(e.ci_high) }})
+                    {% else %}
+                      <strong>{{ "%.2f"|format(e.rate_ratio) }}</strong>
+                      ({{ "%.2f"|format(e.ci_low) }}–{{ "%.2f"|format(e.ci_high) }})
+                    {% endif %}
                   {% else %}—{% endif %}
                 </td>
                 <td style="font-size:0.82rem">
-                  {% if e.status == "ok" %}negative-binomial model
+                  {% if e.status == "ok" %}{{ e.detail or outcome.model_label }}
                   {% elif e.status == "insufficient_data" %}<em>{{ e.detail }}</em>
                   {% else %}{{ e.detail }}{% endif %}
                 </td>
@@ -134,13 +170,48 @@
         candidate exposures to start the comparison.</span></div>
     {% endif %}
 
+    {% if env_assocs %}
+      <p class="eyebrow">Environment context</p>
+      {% for a in env_assocs %}
+        <div class="card">
+          {% if env_figures.get(a.var_key) %}
+            <figure style="margin:0">
+              <img src="{{ env_figures[a.var_key].data_uri }}" alt="{{ a.var_label }} vs {{ outcome.label }}" style="max-width:100%">
+              <figcaption class="hint">{{ env_figures[a.var_key].caption }}</figcaption>
+            </figure>
+          {% endif %}
+          <table style="margin-top:0.5rem">
+            <thead><tr><th>{{ a.var_label }} tertile</th><th class="num">Sessions</th>
+                <th class="num">Mean {{ outcome.label }} ({{ outcome.group_unit }})</th></tr></thead>
+            <tbody>
+              {% for range_label, n, mean in a.tertiles %}
+                <tr><td>{{ range_label }}</td><td class="num">{{ n }}</td>
+                    <td class="num">{{ "%.2f"|format(mean) }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <p class="hint" style="margin-bottom:0">Descriptive only — published
+            environmental effects on HRV are percent-level, below what a personal
+            dataset can resolve; no model is fitted and none should be inferred.</p>
+        </div>
+      {% endfor %}
+    {% endif %}
+
     <p class="eyebrow">How to read this</p>
     <div class="card" style="font-size:0.88rem">
       <ul class="notes">
-        <li><strong>Model.</strong> One negative-binomial rate model per tag:
+        <li><strong>Model.</strong>
+          {% if outcome.key == "ectopy" %}
+          One negative-binomial rate model per tag:
           confirmed ectopic count per session, offset by log analysed hours, with a
           sin/cos hour-of-day pair (ectopy has a circadian rhythm — so do most
           exposures) and, when the data supports it, the activity group.
+          {% else %}
+          One linear model per tag on {{ "ln(RMSSD)" if outcome.key == "ln_rmssd" else "resting HR" }}
+          with robust (HC1) errors, a sin/cos hour-of-day pair (HRV and HR have
+          circadian rhythms — so do most exposures) and, when the data supports
+          it, the activity group.
+          {% endif %}
           {% for note in analysis.model_notes %}<br><span class="hint">{{ note }}</span>{% endfor %}</li>
         <li><strong>Variability context.</strong> Ectopic burden swings severalfold
           between days within the same person (hour-to-hour variation near 50%

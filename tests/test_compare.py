@@ -245,6 +245,18 @@ class TestTrends:
         assert data.points[0].ln_rmssd == pytest.approx(math.log(20.0))
         assert data.points[1].ln_rmssd == pytest.approx(math.log(40.0))
 
+    def test_trend_carries_environment_context(self, app: Flask, person: Person) -> None:
+        sessions = [_make_session(app, person) for _ in range(3)]
+        sessions[0].env_temp_c = 18.0
+        sessions[0].env_pm25_ugm3 = 7.0
+        sessions[1].env_temp_c = 24.5
+        db.session.commit()
+        data = build_trend(sessions, "supine")
+        assert data.points[0].env_temp_c == pytest.approx(18.0)
+        assert data.points[0].env_pm25_ugm3 == pytest.approx(7.0)
+        assert data.points[1].env_temp_c == pytest.approx(24.5)
+        assert data.points[2].env_temp_c is None
+
 
 class TestCompareViews:
     def test_select_page_groups_by_activity(

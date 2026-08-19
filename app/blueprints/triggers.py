@@ -11,7 +11,13 @@ from app.models import Person, Session, TriggerTag, slugify
 from app.processing import load_cached_events
 from app.triggers import figures as trigger_figures
 from app.triggers.seed import ensure_builtin_trigger_tags
-from app.triggers.stats import analyse_triggers, hour_of_day_profile, rates_by_tag
+from app.triggers.stats import (
+    OUTCOMES,
+    analyse_triggers,
+    env_associations,
+    hour_of_day_profile,
+    rates_by_tag,
+)
 
 bp = Blueprint("triggers", __name__, url_prefix="/triggers")
 
@@ -25,24 +31,40 @@ def index() -> str:
 @bp.get("/<int:person_id>")
 def dashboard(person_id: int) -> str:
     person = db.get_or_404(Person, person_id)
-    analysis = analyse_triggers(person)
+    outcome_key = request.args.get("outcome", "ectopy")
+    if outcome_key not in OUTCOMES:
+        flash(f"Unknown outcome {outcome_key!r} — showing ectopy burden.", "error")
+        outcome_key = "ectopy"
+    analysis = analyse_triggers(person, outcome=outcome_key)
 
     names = {
         t.slug: t.name
         for t in db.session.scalars(select(TriggerTag)).all()
     }
+    # The burden timeline, tagged-vs-untagged strip, and hour profile are
+    # ectopy-rate figures; other outcomes show the forest + table + env.
     figures = {
-        "timeline": trigger_figures.burden_timeline(analysis.observations),
-        "by_tag": trigger_figures.burden_by_tag(
-            rates_by_tag(analysis.observations), names
-        ),
+        "timeline": None,
+        "by_tag": None,
         "hour": None,
-        "forest": trigger_figures.forest(analysis.effects),
+        "forest": trigger_figures.forest(analysis.effects, analysis.outcome),
     }
-    profile = hour_of_day_profile(
-        analysis.observations, _event_offsets(person, analysis)
-    )
-    figures["hour"] = trigger_figures.hour_profile_figure(profile)
+    profile = None
+    if outcome_key == "ectopy":
+        figures["timeline"] = trigger_figures.burden_timeline(analysis.observations)
+        figures["by_tag"] = trigger_figures.burden_by_tag(
+            rates_by_tag(analysis.observations), names
+        )
+        profile = hour_of_day_profile(
+            analysis.observations, _event_offsets(person, analysis)
+        )
+        figures["hour"] = trigger_figures.hour_profile_figure(profile)
+
+    env_assocs = env_associations(analysis.observations, analysis.outcome)
+    env_figures = {
+        a.var_key: trigger_figures.env_scatter(a, analysis.outcome)
+        for a in env_assocs
+    }
 
     awaiting = (
         db.session.scalars(
@@ -57,7 +79,11 @@ def dashboard(person_id: int) -> str:
         "triggers/dashboard.html",
         person=person,
         analysis=analysis,
+        outcomes=OUTCOMES,
+        outcome=analysis.outcome,
         figures=figures,
+        env_assocs=env_assocs,
+        env_figures=env_figures,
         profile=profile,
         awaiting=awaiting,
         disclaimer=DISCLAIMER,

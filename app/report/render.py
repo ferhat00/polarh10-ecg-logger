@@ -21,6 +21,7 @@ from app.activities.base import ActivityAnalysis
 from app.activities.registry import ResolvedActivity
 from app.ingest.loader import LoadedRecording
 from app.pipeline.hrv import HRVResult
+from app.pipeline.posture import POSTURE_DISCLAIMER, PostureResult
 from app.pipeline.process import PipelineResult
 from app.report import figures as fig
 from app.report import sleep_figures
@@ -70,6 +71,14 @@ class ReportMeta:
     original_filename: str = ""
     file_sha256: str | None = None
     reduced_confidence: bool = False
+    # Structured context (docs/CONTEXT_METRICS.md); all optional.
+    body_position: str | None = None
+    body_position_source: str | None = None
+    alcohol_drinks_24h: int | None = None
+    sleep_quality_1_5: int | None = None
+    #: One-line environment summary ("21.3 °C · RH 46% · …"), pre-formatted
+    #: by the caller so the template stays dumb; None when nothing fetched.
+    environment_line: str | None = None
 
 
 @dataclass
@@ -104,6 +113,10 @@ class ReportData:
     sleep_figures: dict[str, fig.Figure | None] = field(default_factory=dict)
     sleep_kpis: list[tuple[str, str, str]] = field(default_factory=list)
     sleep_disclaimer: str = SLEEP_DISCLAIMER
+    # --- posture (recordings with an ACC companion file) ------------------
+    posture: PostureResult | None = None
+    posture_figure: fig.Figure | None = None
+    posture_disclaimer: str = POSTURE_DISCLAIMER
     fonts_css: str = ""
     no_flags_statement: str = NO_FLAGS_STATEMENT
     interval_explanation: str = INTERVAL_METRICS_EXPLANATION
@@ -119,6 +132,7 @@ def build_report_html(
     flags: list[ScreeningFlag],
     meta: ReportMeta,
     sleep: SleepAnalysis | None = None,
+    posture: PostureResult | None = None,
 ) -> str:
     """Assemble figures + tables and render the standalone report page."""
     data = ReportData(
@@ -129,7 +143,10 @@ def build_report_html(
         activity=activity,
         flags=flags,
         sleep=sleep,
+        posture=posture,
     )
+    if posture is not None:
+        data.posture_figure = fig.posture_strip(posture)
     data.strips = _build_strips(rec, result)
     data.figures = {
         "hr": fig.hr_timeseries(
@@ -368,6 +385,19 @@ def _kpis(
                 f"{max(hrv.sdnn_per_window_ms):.0f} ms"
             )
         kpis.append(("SDNN (whole record)", f"{hrv.sdnn_ms:.1f} ms", note))
+    resp = result.respiration
+    if resp is not None and resp.median_brpm is not None:
+        kpis.append(
+            (
+                "Resp rate (EDR)",
+                f"{resp.median_brpm:.1f} brpm",
+                f"estimated from heartbeat + R-amplitude patterns, not measured "
+                f"airflow; p5–p95 {resp.p5_brpm:.1f}–{resp.p95_brpm:.1f} "
+                f"({resp.n_windows_used}/{resp.n_windows_total} windows; "
+                "Schaffarczyk 2022: r=0.85 vs gas exchange on this strap, "
+                "degrades at high intensity)",
+            )
+        )
     if result.events is not None:
         ev = result.events
         rate = f" ({ev.per_hour:.2f}/h)" if ev.per_hour is not None else ""

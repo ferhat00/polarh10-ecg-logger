@@ -162,12 +162,15 @@ def make_acc_csv_bytes(
     delimiter: str = ";",
     decimal: str = ".",
     seed: int = 3,
+    gravity: tuple[float, float, float] | None = None,
 ) -> bytes:
     """A Polar Sensor Logger ACC export: still = gravity vector + noise.
 
     ``movement_bursts`` is a list of ``(t0_s, t1_s, amplitude_mg)`` spans in
     which an oscillation in the human-movement band (~1.5 Hz) is added, so
-    tests know exactly which epochs contain movement.
+    tests know exactly which epochs contain movement. ``gravity`` overrides
+    the resting (x, y, z) gravity vector in mg — default is the historical
+    "lying down" vector (mostly +Z with a little +X).
     """
     import datetime as dt
 
@@ -177,9 +180,10 @@ def make_acc_csv_bytes(
     rng = np.random.default_rng(seed)
 
     # Gravity mostly on Z (lying down), a little on X, plus sensor noise.
-    x = 120.0 + rng.normal(0.0, 2.0, n)
-    y = rng.normal(0.0, 2.0, n)
-    z = 990.0 + rng.normal(0.0, 2.0, n)
+    gx, gy, gz = gravity if gravity is not None else (120.0, 0.0, 990.0)
+    x = gx + rng.normal(0.0, 2.0, n)
+    y = gy + rng.normal(0.0, 2.0, n)
+    z = gz + rng.normal(0.0, 2.0, n)
     for t0, t1, amp in movement_bursts or []:
         span = (t >= t0) & (t < t1)
         wobble = amp * np.sin(2 * np.pi * 1.5 * t[span])

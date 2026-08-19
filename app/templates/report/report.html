@@ -124,6 +124,16 @@ ul.notes { font-size: 0.82rem; color: #444; }
       <tr><th>Device cross-check</th><td class="num">median |ΔRR| {{ "%.0f" | format(d.result.device_rr_median_abs_diff_ms) }} ms vs the strap's own rr stream</td></tr>
       {% endif %}
       {% if d.meta.context_note %}<tr><th>Context note</th><td>{{ d.meta.context_note }}</td></tr>{% endif %}
+      {% if d.meta.body_position or d.meta.alcohol_drinks_24h is not none or d.meta.sleep_quality_1_5 %}
+      <tr><th>Context</th><td>
+        {%- if d.meta.body_position %}{{ d.meta.body_position }} ({{ d.meta.body_position_source or "user" }}){% endif -%}
+        {%- if d.meta.alcohol_drinks_24h is not none %} · alcohol {{ d.meta.alcohol_drinks_24h }} drink(s)/24 h{% endif -%}
+        {%- if d.meta.sleep_quality_1_5 %} · sleep quality {{ d.meta.sleep_quality_1_5 }}/5{% endif -%}
+      </td></tr>
+      {% endif %}
+      {% if d.meta.environment_line %}
+      <tr><th>Environment</th><td class="num">{{ d.meta.environment_line }}</td></tr>
+      {% endif %}
     </tbody>
   </table>
   <ul class="notes">
@@ -280,6 +290,12 @@ ul.notes { font-size: 0.82rem; color: #444; }
 {% if d.figures.quality %}
 <p class="eyebrow">Quality &amp; motion</p>
 <figure><img src="{{ d.figures.quality.data_uri }}" alt="Quality and motion traces"><figcaption>{{ d.figures.quality.caption }}</figcaption></figure>
+{% endif %}
+
+{% if d.posture_figure %}
+<p class="eyebrow">{{ "Sleep position" if d.sleep else "Posture" }}</p>
+<figure><img src="{{ d.posture_figure.data_uri }}" alt="Posture strip"><figcaption>{{ d.posture_figure.caption }}</figcaption></figure>
+<p class="note">{{ d.posture_disclaimer }}</p>
 {% endif %}
 
 {% if d.extras_rows %}

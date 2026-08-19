@@ -38,6 +38,32 @@
       Context note <span class="hint">optional — “after coffee”, “poor sleep”, “browsing library and shop”… context often explains an outlier</span>
       <textarea name="context_note" rows="2">{{ form.get('context_note', '') }}</textarea>
     </label>
+    <div style="display:flex; flex-wrap:wrap; gap:0.75rem 1.5rem">
+      <label>
+        Body position <span class="hint">optional — posture shifts HRV more than most
+          interventions; auto-detected from the accelerometer when attached</span>
+        <select name="body_position">
+          <option value="" {{ "selected" if not form.get('body_position') }}>not recorded</option>
+          {% for pos in body_positions %}
+            <option value="{{ pos }}" {{ "selected" if form.get('body_position') == pos }}>{{ pos }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Alcohol, last 24 h <span class="hint">optional — number of drinks</span>
+        <input type="number" name="alcohol_drinks_24h" min="0" max="30" step="1"
+               value="{{ form.get('alcohol_drinks_24h', '') }}" style="max-width:8rem">
+      </label>
+      <label>
+        Sleep quality last night <span class="hint">optional — subjective</span>
+        <select name="sleep_quality_1_5">
+          <option value="" {{ "selected" if not form.get('sleep_quality_1_5') }}>not rated</option>
+          {% for score, label in [(1, "1 — very poor"), (2, "2 — poor"), (3, "3 — fair"), (4, "4 — good"), (5, "5 — very good")] %}
+            <option value="{{ score }}" {{ "selected" if form.get('sleep_quality_1_5') == score|string }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
     <fieldset class="stack" style="border:none; padding:0; margin:0">
       <legend class="eyebrow" style="padding:0">Trigger tags</legend>
       <span class="hint">optional — exposures in the hours before or during this recording;

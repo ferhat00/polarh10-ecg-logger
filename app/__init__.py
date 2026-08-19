@@ -43,6 +43,10 @@ def create_app(config_object: object | None = None) -> Flask:
     app.register_blueprint(logbook_bp)
     app.register_blueprint(triggers_bp)
 
+    from app.cli import register_cli
+
+    register_cli(app)
+
     from flask import render_template
 
     @app.errorhandler(404)
