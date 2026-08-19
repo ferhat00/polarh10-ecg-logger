@@ -24,6 +24,7 @@ from flask import Flask
 from app.activities.base import ActivityInputs, PersonContext, apply_suppressions
 from app.activities.metrics import lowest_sustained_hr
 from app.activities.registry import resolve_profile
+from app.environment import format_environment_line
 from app.extensions import db
 from app.ingest.exceptions import AmbiguousFormatError, LoaderError
 from app.ingest.loader import FormatOverrides, LoadedRecording, load_polar_csv
@@ -404,6 +405,11 @@ def _write_report(
         original_filename=session.original_filename,
         file_sha256=session.file_sha256,
         reduced_confidence=result.correction.reduced_confidence,
+        body_position=session.body_position,
+        body_position_source=session.body_position_source,
+        alcohol_drinks_24h=session.alcohol_drinks_24h,
+        sleep_quality_1_5=session.sleep_quality_1_5,
+        environment_line=format_environment_line(session),
     )
     html = build_report_html(
         rec, result, hrv_censored, analysis, resolved, flags, meta, sleep=sleep

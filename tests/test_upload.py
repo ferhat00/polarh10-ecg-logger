@@ -66,15 +66,19 @@ def _upload(
     payload: bytes,
     filename: str = "ecg_2026-08-10.csv",
     note: str = "",
+    extra: dict | None = None,
 ):
+    data = {
+        "person_id": str(person.id),
+        "activity_type_id": str(activity_id),
+        "context_note": note,
+        "file": (io.BytesIO(payload), filename),
+    }
+    if extra:
+        data.update(extra)
     return client.post(
         "/sessions/upload",
-        data={
-            "person_id": str(person.id),
-            "activity_type_id": str(activity_id),
-            "context_note": note,
-            "file": (io.BytesIO(payload), filename),
-        },
+        data=data,
         content_type="multipart/form-data",
     )
 
@@ -169,6 +173,119 @@ class TestCacheVersioning:
             cache_path_for(session), rr_ms=np.array([800.0, 810.0])
         )
         assert load_cached_events(session) is None
+
+
+class TestContextFields:
+    def test_context_fields_persist_from_upload(
+        self, client: FlaskClient, app: Flask, person: Person, activity_id: int
+    ) -> None:
+        _upload(
+            client, person, activity_id, make_csv_bytes(),
+            extra={
+                "body_position": "supine",
+                "alcohol_drinks_24h": "2",
+                "sleep_quality_1_5": "4",
+            },
+        )
+        session = db.session.query(Session).one()
+        assert session.body_position == "supine"
+        assert session.body_position_source == "user"
+        assert session.alcohol_drinks_24h == 2
+        assert session.sleep_quality_1_5 == 4
+
+        detail = client.get(f"/sessions/{session.id}")
+        assert b"supine" in detail.data
+        assert b"alcohol 2 drink(s)/24 h" in detail.data
+        assert b"sleep quality 4/5" in detail.data
+
+    def test_context_fields_default_to_null(
+        self, client: FlaskClient, app: Flask, person: Person, activity_id: int
+    ) -> None:
+        _upload(client, person, activity_id, make_csv_bytes())
+        session = db.session.query(Session).one()
+        assert session.body_position is None
+        assert session.body_position_source is None
+        assert session.alcohol_drinks_24h is None
+        assert session.sleep_quality_1_5 is None
+        # Environment columns stay NULL by default (feature is opt-in).
+        assert session.env_fetched_at is None
+        assert session.env_temp_c is None
+        assert session.env_pm25_ugm3 is None
+
+    def test_invalid_context_values_treated_as_absent(
+        self, client: FlaskClient, app: Flask, person: Person, activity_id: int
+    ) -> None:
+        _upload(
+            client, person, activity_id, make_csv_bytes(),
+            extra={
+                "body_position": "handstand",
+                "alcohol_drinks_24h": "99",
+                "sleep_quality_1_5": "0",
+            },
+        )
+        session = db.session.query(Session).one()
+        assert session.body_position is None
+        assert session.alcohol_drinks_24h is None
+        assert session.sleep_quality_1_5 is None
+        # The upload itself must never fail over malformed optional context.
+        assert session.processing_status == ProcessingStatus.DONE
+
+    def test_edit_context_updates_and_clears(
+        self, client: FlaskClient, app: Flask, person: Person, activity_id: int
+    ) -> None:
+        _upload(
+            client, person, activity_id, make_csv_bytes(),
+            extra={"body_position": "sitting", "alcohol_drinks_24h": "1"},
+        )
+        session = db.session.query(Session).one()
+
+        resp = client.post(
+            f"/sessions/{session.id}/context",
+            data={
+                "context_note": "edited later",
+                "body_position": "supine",
+                "alcohol_drinks_24h": "",
+                "sleep_quality_1_5": "5",
+            },
+        )
+        assert resp.status_code == 302
+        db.session.expire_all()
+        session = db.session.get(Session, session.id)
+        assert session.context_note == "edited later"
+        assert session.body_position == "supine"
+        assert session.body_position_source == "user"
+        assert session.alcohol_drinks_24h is None
+        assert session.sleep_quality_1_5 == 5
+
+        # Clearing the position ("not recorded") removes a user-set value.
+        client.post(f"/sessions/{session.id}/context", data={"body_position": ""})
+        db.session.expire_all()
+        session = db.session.get(Session, session.id)
+        assert session.body_position is None
+        assert session.body_position_source is None
+
+    def test_acc_derived_position_survives_blank_edit(
+        self, client: FlaskClient, app: Flask, person: Person, activity_id: int
+    ) -> None:
+        _upload(client, person, activity_id, make_csv_bytes())
+        session = db.session.query(Session).one()
+        session.body_position = "left"
+        session.body_position_source = "acc"
+        db.session.commit()
+
+        # A form submitted with position blank must not wipe ACC evidence...
+        client.post(f"/sessions/{session.id}/context", data={"body_position": ""})
+        db.session.expire_all()
+        session = db.session.get(Session, session.id)
+        assert session.body_position == "left"
+        assert session.body_position_source == "acc"
+
+        # ...but an explicit user choice overrides it.
+        client.post(f"/sessions/{session.id}/context", data={"body_position": "prone"})
+        db.session.expire_all()
+        session = db.session.get(Session, session.id)
+        assert session.body_position == "prone"
+        assert session.body_position_source == "user"
 
 
 class TestDuplicateRejection:

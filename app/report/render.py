@@ -70,6 +70,14 @@ class ReportMeta:
     original_filename: str = ""
     file_sha256: str | None = None
     reduced_confidence: bool = False
+    # Structured context (docs/CONTEXT_METRICS.md); all optional.
+    body_position: str | None = None
+    body_position_source: str | None = None
+    alcohol_drinks_24h: int | None = None
+    sleep_quality_1_5: int | None = None
+    #: One-line environment summary ("21.3 °C · RH 46% · …"), pre-formatted
+    #: by the caller so the template stays dumb; None when nothing fetched.
+    environment_line: str | None = None
 
 
 @dataclass

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from flask import current_app
 
+from app.environment import format_environment_line
 from app.models import Person, Session
 
 
@@ -115,6 +116,21 @@ def append_session_entry(session: Session) -> None:
         lines.append("- **Notes:** " + " ".join(note_lines))
     if session.trigger_tags:
         lines.append("- **Triggers:** " + " · ".join(t.name for t in session.trigger_tags))
+    context_bits: list[str] = []
+    if session.body_position:
+        context_bits.append(
+            f"position {session.body_position} ({session.body_position_source or 'user'})"
+        )
+    if session.alcohol_drinks_24h is not None:
+        context_bits.append(f"alcohol {session.alcohol_drinks_24h} drink(s)/24 h")
+    if session.sleep_quality_1_5:
+        context_bits.append(f"sleep quality {session.sleep_quality_1_5}/5")
+    if context_bits:
+        lines.append("- **Context fields:** " + " · ".join(context_bits))
+    if session.env_fetched_at:
+        env_line = format_environment_line(session)
+        if env_line:
+            lines.append(f"- **Environment:** {env_line}")
     if session.context_note:
         lines.append(f"- **Context:** {session.context_note}")
     lines.append(

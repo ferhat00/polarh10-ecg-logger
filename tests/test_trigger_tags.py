@@ -51,6 +51,20 @@ class TestSeeding:
         ensure_builtin_trigger_tags()
         assert all(t.is_builtin for t in db.session.query(TriggerTag).all())
 
+    def test_custom_tag_with_builtin_slug_is_promoted(self, app: Flask) -> None:
+        # A user typed "nicotine" as a free-text tag before the vocabulary
+        # grew to include it. Seeding must promote that row (keeping the
+        # user's name and session links), not crash on the slug UNIQUE.
+        db.session.add(TriggerTag(name="Nicotine gum", slug="nicotine"))
+        db.session.commit()
+
+        ensure_builtin_trigger_tags()
+        rows = db.session.query(TriggerTag).filter_by(slug="nicotine").all()
+        assert len(rows) == 1
+        assert rows[0].is_builtin is True
+        assert rows[0].name == "Nicotine gum"  # user's display name kept
+        assert db.session.query(TriggerTag).count() == len(BUILTIN_TRIGGER_TAGS)
+
 
 class TestTagging:
     def test_session_tags_roundtrip(self, app: Flask, person: Person) -> None:
