@@ -44,7 +44,9 @@ py -3.12 -m venv .venv               # macOS/Linux: python3.12 -m venv .venv
 
 Then open http://127.0.0.1:5000, add a person, and upload a recording. Configuration
 is environment-based with local defaults (`ECGLOG_DATA_DIR`, `ECGLOG_DATABASE_URI`,
-`ECGLOG_SECRET_KEY`, `ECGLOG_MAX_UPLOAD_BYTES`) — see `app/config.py`.
+`ECGLOG_SECRET_KEY`, `ECGLOG_MAX_UPLOAD_BYTES`; opt-in weather lookup:
+`ECGLOG_WEATHER_ENABLED`, `ECGLOG_HOME_LAT`, `ECGLOG_HOME_LON`,
+`ECGLOG_WEATHER_TIMEOUT_S`) — see `app/config.py`.
 
 Data layout (all under `data/`, which is gitignored):
 

@@ -14,6 +14,7 @@ status endpoint. Results are persisted three ways:
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import threading
 from pathlib import Path
@@ -93,7 +94,8 @@ def _process(app: Flask, session_id: int) -> None:
                     stored_path=session.stored_path,
                 )
 
-            _persist(session, rec, result, sleep)
+            env_extras = _maybe_fetch_environment(app, session, rec)
+            _persist(session, rec, result, sleep, env_extras=env_extras)
             session.processing_status = ProcessingStatus.DONE
             # Refresh relationships so the log entry sees this run's rows.
             db.session.flush()
@@ -114,11 +116,63 @@ def _process(app: Flask, session_id: int) -> None:
         db.session.commit()
 
 
+def _maybe_fetch_environment(app: Flask, session: Session, rec: LoadedRecording) -> dict | None:
+    """Opt-in environment lookup; sets the session's env columns.
+
+    Returns the ``extras["environment"]`` record. Fully guarded: whatever
+    happens here, the session still processes — a weather hiccup must never
+    cost an analysis. Runs on the processing thread (the upload request has
+    already returned), and a session fetched once is not refetched on
+    reprocess (``flask env-backfill --refetch`` exists for that).
+    """
+    cfg = app.config
+    if not cfg.get("WEATHER_ENABLED"):
+        return None
+    lat, lon = cfg.get("HOME_LAT"), cfg.get("HOME_LON")
+    if lat is None or lon is None:
+        return {
+            "status": "no_location",
+            "notes": ["weather enabled but ECGLOG_HOME_LAT/ECGLOG_HOME_LON unset"],
+        }
+    if session.env_fetched_at is not None:
+        return {"status": "ok", "notes": ["kept from a previous fetch"]}
+    try:
+        from app.environment.client import fetch_environment
+
+        sample = fetch_environment(
+            lat,
+            lon,
+            rec.start_time,
+            rec.duration_s,
+            timeout_s=float(cfg.get("WEATHER_TIMEOUT_S", 10)),
+        )
+    except Exception as exc:  # noqa: BLE001 - never fail the session over weather
+        app.logger.warning("Environment lookup failed for session %s: %s", session.id, exc)
+        return {"status": "failed", "notes": [f"{type(exc).__name__}: {exc}"]}
+    if sample is None:
+        return {"status": "failed", "notes": ["nothing retrievable (offline or API down)"]}
+
+    session.env_temp_c = sample.temp_c
+    session.env_apparent_temp_c = sample.apparent_temp_c
+    session.env_humidity_pct = sample.humidity_pct
+    session.env_pressure_hpa = sample.pressure_hpa
+    session.env_pm25_ugm3 = sample.pm25_ugm3
+    session.env_pm10_ugm3 = sample.pm10_ugm3
+    session.env_ozone_ugm3 = sample.ozone_ugm3
+    session.env_no2_ugm3 = sample.no2_ugm3
+    session.env_aqi = sample.aqi
+    session.env_daylight_h = sample.daylight_h
+    session.env_source = sample.source
+    session.env_fetched_at = dt.datetime.now(dt.UTC)
+    return {"status": "ok", "notes": sample.notes}
+
+
 def _persist(
     session: Session,
     rec: LoadedRecording,
     result: PipelineResult,
     sleep: SleepAnalysis | None = None,
+    env_extras: dict | None = None,
 ) -> None:
     """Store DB rows, the .npz cache, and the rendered report."""
     person = session.person
@@ -219,7 +273,7 @@ def _persist(
         rem_min=primary_sleep.rem_min if primary_sleep else None,
         awakenings_n=primary_sleep.awakenings_n if primary_sleep else None,
         sleep_engine=sleep.primary_engine if sleep is not None else None,
-        extras=_build_extras(result, hrv_censored, analysis, sleep_extras),
+        extras=_build_extras(result, hrv_censored, analysis, sleep_extras, env_extras),
     )
     db.session.add(metrics)
 
@@ -247,13 +301,18 @@ def _persist(
 
 
 def _build_extras(
-    result: PipelineResult, hrv: HRVResult, analysis, sleep_extras: dict | None = None
+    result: PipelineResult,
+    hrv: HRVResult,
+    analysis,
+    sleep_extras: dict | None = None,
+    env_extras: dict | None = None,
 ) -> dict:
     sqi_values = [
         w.sqi_mean for w in result.quality.windows if not np.isnan(w.sqi_mean)
     ]
     return {
         "sleep": sleep_extras,
+        "environment": env_extras,
         "sqi_mean": float(np.mean(sqi_values)) if sqi_values else None,
         "resting_hr_bpm": lowest_sustained_hr(result.rr),
         "activity": analysis.extras,
