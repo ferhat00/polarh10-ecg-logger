@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Sleep history — ECG Logger{% endblock %}
+{% block content %}
+  <p class="eyebrow">Sleep</p>
+  <h1>Sleep history</h1>
+  <p>Every night this app has staged. Tick the ones you want and re-analyse them with the
+  algorithm of your choice — the raw recordings are kept, so any night can be re-staged at
+  any time. Stage estimates are never a sleep study.</p>
+
+  <form method="get" class="card" style="display:flex; align-items:center; gap:0.6rem">
+    <label for="person-select" style="margin:0">Person</label>
+    <select id="person-select" name="person" onchange="this.form.submit()">
+      <option value="" {{ "selected" if not person_id }}>everyone</option>
+      {% for p in people %}
+        <option value="{{ p.id }}" {{ "selected" if person_id == p.id }}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit" class="button-quiet">Show</button></noscript>
+  </form>
+
+  {% if queued %}
+    <div class="card"><p><span class="mono">{{ queued }}</span> night(s) in the
+    processing queue — they run one at a time.</p></div>
+  {% endif %}
+
+  {% if not nights %}
+    <div class="empty-state">No sleep sessions yet. Upload an overnight recording
+    against a sleep activity and it will appear here.</div>
+  {% else %}
+    <form method="post" action="{{ url_for('sleep.reanalyse') }}">
+      <input type="hidden" name="person" value="{{ person_id if person_id }}">
+      <div class="card">
+        <table>
+          <thead>
+            <tr><th></th><th>Night</th><th>Person</th><th class="num">TST</th>
+                <th class="num">Efficiency</th><th>Staged with</th></tr>
+          </thead>
+          <tbody>
+            {% for s in nights %}
+              <tr>
+                <td><input type="checkbox" name="sessions" value="{{ s.id }}"
+                           aria-label="select session {{ s.id }}"></td>
+                <td><a href="{{ url_for('sessions.detail', session_id=s.id) }}">
+                  {{ s.recorded_at.strftime("%Y-%m-%d") if s.recorded_at else "session " ~ s.id }}</a>
+                  {% if s.processing_status != "done" %}
+                    <span class="badge badge-warn">{{ s.processing_status }}</span>
+                  {% endif %}
+                  {% if s.acc_stored_path %}<span class="badge">ACC</span>{% endif %}</td>
+                <td>{{ s.person.name }}</td>
+                <td class="num">{{ "%.0f min"|format(s.metrics.tst_min) if s.metrics and s.metrics.tst_min is not none else "—" }}</td>
+                <td class="num">{{ "%.0f%%"|format(s.metrics.sleep_efficiency_pct) if s.metrics and s.metrics.sleep_efficiency_pct is not none else "—" }}</td>
+                <td>
+                  {{ s.metrics.sleep_engine if s.metrics and s.metrics.sleep_engine else "—" }}
+                  {% if s.sleep_engine_pref and (not s.metrics or s.sleep_engine_pref != s.metrics.sleep_engine) %}
+                    <span class="hint">you chose {{ s.sleep_engine_pref }}</span>
+                  {% elif s.sleep_engine_pref %}
+                    <span class="hint">your choice</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="eyebrow">Re-analyse selected</p>
+      <div class="card">
+        <label>
+          Staging algorithm
+          <select name="sleep_engine">
+            <option value="keep" selected>keep each night's current choice</option>
+            <option value="">automatic — best available{% if auto_label %} (currently {{ auto_label }}){% endif %}</option>
+            {% for st in sleep_engines %}
+              <option value="{{ st.key }}" {{ "disabled" if not st.available }}
+                      title="{{ st.unavailable_reason or '' }}">
+                {{ st.label }} — {{ engine_vocabs[st.key] }}{% if not st.available %} (unavailable){% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        {% for st in sleep_engines if not st.available %}
+          <p class="hint">{{ st.label }}: {{ st.unavailable_reason }}</p>
+        {% endfor %}
+        <p class="hint">Every available engine still runs on each night — the choice decides
+          which one fills the sleep numbers and leads the report, and the rest stay in the
+          report's agreement table. A Wake/NREM/REM engine reports no light/deep split rather
+          than inventing one, so those columns go blank by design when you pick it. The choice
+          sticks to each night and is re-applied every time it is re-analysed.</p>
+        <p class="hint">Nights are queued and processed one at a time. The external 5-class
+          engine runs a separate deep network per night and can take many minutes each —
+          budget accordingly before selecting a long history.</p>
+        <p><button type="submit" class="button-quiet">Re-analyse selected nights</button></p>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

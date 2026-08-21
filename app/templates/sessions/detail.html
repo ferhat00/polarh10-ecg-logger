@@ -156,7 +156,11 @@
                 efficiency {{ "%.0f%%"|format(session.metrics.sleep_efficiency_pct) }}
                 {% if session.metrics.deep_min is not none %} · deep {{ "%.0f"|format(session.metrics.deep_min) }} min{% endif %}
                 {% if session.metrics.rem_min is not none %} · REM {{ "%.0f"|format(session.metrics.rem_min) }} min{% endif %}
-                <span class="hint">engine: {{ session.metrics.sleep_engine }} — estimate, see report</span>
+                <span class="hint">engine: {{ session.metrics.sleep_engine }}
+                  {%- set pref = extras.get("sleep", {}).get("engine_pref") %}
+                  {%- if pref and pref == session.metrics.sleep_engine %} (your choice)
+                  {%- elif pref %} — you chose {{ pref }}, which didn't run this night; see report
+                  {%- endif %} — estimate, see report</span>
               </td></tr>
           {% endif %}
           {% if session.acc_stored_path %}
@@ -198,6 +202,39 @@
         <a class="button" href="{{ url_for('sessions.report', session_id=session.id) }}">Open report</a>
         <a class="button button-quiet" href="{{ url_for('sessions.report_download', session_id=session.id) }}">Download report</a>
       </p>
+    {% endif %}
+
+    {% if sleep_engines %}
+      <p class="eyebrow">Sleep algorithm</p>
+      <div class="card">
+        <form method="post" action="{{ url_for('sessions.reprocess', session_id=session.id) }}"
+              class="stack">
+          <label>
+            Staging algorithm
+            <select name="sleep_engine">
+              <option value="" {{ "selected" if not session.sleep_engine_pref }}>automatic — best available{% if auto_label %} (currently {{ auto_label }}){% endif %}</option>
+              {% for st in sleep_engines %}
+                <option value="{{ st.key }}"
+                        {{ "selected" if session.sleep_engine_pref == st.key }}
+                        {{ "disabled" if not st.available }}
+                        title="{{ st.unavailable_reason or '' }}">
+                  {{ st.label }} — {{ engine_vocabs[st.key] }}{% if not st.available %} (unavailable){% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          {% for st in sleep_engines if not st.available %}
+            <p class="hint">{{ st.label }}: {{ st.unavailable_reason }}</p>
+          {% endfor %}
+          <p class="hint">Every available engine still runs — the choice decides which one
+            fills the sleep numbers above and leads the report, and the other engines stay
+            in the report's agreement table. Engines differ in what they can tell apart:
+            a Wake/NREM/REM engine reports no light/deep split rather than inventing one.
+            The choice sticks to this session and is re-applied every time it is re-analysed.</p>
+          <div><button type="submit" class="button-quiet">Re-analyse this night</button>
+            <span class="hint">re-runs the full pipeline from the stored recording</span></div>
+        </form>
+      </div>
     {% endif %}
 
     {% for s in extras.get("suppressions", []) %}

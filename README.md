@@ -159,6 +159,13 @@ Three engines, in increasing setup cost:
 | SleepECG pre-trained GRU (MESA/SHHS) | Wake/REM/NREM | `pip install -r requirements-sleep.txt` (classifiers ship in the wheel; still fully offline) |
 | External 5-class deep net ([adammj/ecg-sleep-staging](https://github.com/adammj/ecg-sleep-staging)) | Wake/N1/N2/N3/REM | your own clone of that AGPL tool + two env vars — run over a subprocess boundary, never vendored |
 
+That ranking is a default, not a lock-in. Raw recordings are kept, so any
+already-logged night can be re-staged with a different engine — one night from
+its session page, or a whole history from the **Sleep** page — and the choice
+sticks to the session. Every available engine still runs, so the agreement
+table survives the switch; a coarser engine simply leaves the stage minutes it
+cannot distinguish empty rather than inventing them.
+
 **Honesty first**: heart-beat-based staging is an estimate. The best published
 model validated on this exact strap — Sleep²/NUKKUAA (Topalidis et al. 2023,
 Sensors 23(5):2390; proprietary, so it cannot run here, but its 4-class

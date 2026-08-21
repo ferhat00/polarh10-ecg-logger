@@ -64,6 +64,7 @@ class TestMigrations:
                 "acc_original_filename",
                 "acc_stored_path",
                 "acc_file_sha256",
+                "sleep_engine_pref",
             } <= session_cols
             person_cols = {c["name"] for c in insp.get_columns("person")}
             assert "sex" in person_cols
@@ -96,7 +97,13 @@ class TestMigrations:
         app = _app(tmp_path)
         with app.app_context():
             upgrade(directory=MIGRATIONS_DIR)
-            # Step back over the context/env/respiration revision first.
+            # Step back over the sleep-engine-preference revision first.
+            downgrade(directory=MIGRATIONS_DIR, revision="-1")
+            insp = _inspector(app)
+            session_cols = {c["name"] for c in insp.get_columns("session")}
+            assert "sleep_engine_pref" not in session_cols
+            assert "body_position" in session_cols  # earlier revisions untouched
+            # Then over the context/env/respiration revision.
             downgrade(directory=MIGRATIONS_DIR, revision="-1")
             insp = _inspector(app)
             session_cols = {c["name"] for c in insp.get_columns("session")}
@@ -128,4 +135,6 @@ class TestMigrations:
             insp = _inspector(app)
             assert "trigger_tag" in set(insp.get_table_names())
             assert "tst_min" in {c["name"] for c in insp.get_columns("metrics")}
-            assert "body_position" in {c["name"] for c in insp.get_columns("session")}
+            session_cols = {c["name"] for c in insp.get_columns("session")}
+            assert "body_position" in session_cols
+            assert "sleep_engine_pref" in session_cols

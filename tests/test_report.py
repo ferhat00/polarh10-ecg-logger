@@ -248,6 +248,45 @@ class TestSleepSection:
         assert "Sleep efficiency" in html
         # Movement figure present (ACC provided).
         assert "wake-override threshold" in html or "Accelerometer activity" in html
+        # No engine was requested for this night, so the provenance is honest
+        # about the numbers coming from the default ranking.
+        assert "(automatic)" in html
+        assert "chosen by you" not in html
+
+    def test_chosen_engine_is_named_as_the_users_choice(self, rendered: dict) -> None:
+        sleep = self._sleep_analysis()
+        sleep.engine_pref = "sleepecg"
+        html = build_report_html(
+            rendered["rec"],
+            rendered["result"],
+            rendered["hrv"],
+            rendered["analysis"],
+            None,
+            [],
+            rendered["meta"],
+            sleep=sleep,
+        )
+        assert "chosen by you" in html
+        assert "(your choice)" in html
+
+    def test_engine_skipped_by_request_reports_its_reason(self, rendered: dict) -> None:
+        from app.sleep.engines import EngineStatus
+
+        sleep = self._sleep_analysis()
+        sleep.engines[2] = EngineStatus(
+            "external-5class", "External deep net", False, "not run — you chose SleepECG."
+        )
+        html = build_report_html(
+            rendered["rec"],
+            rendered["result"],
+            rendered["hrv"],
+            rendered["analysis"],
+            None,
+            [],
+            rendered["meta"],
+            sleep=sleep,
+        )
+        assert "not run — you chose SleepECG." in html
 
     def test_no_sleep_section_without_sleep(self, rendered: dict) -> None:
         assert "Hypnogram" not in rendered["html"]
