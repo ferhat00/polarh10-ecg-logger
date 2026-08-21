@@ -91,12 +91,50 @@ class TestMigrations:
                 "resp_rate_p5_brpm",
                 "resp_rate_p95_brpm",
             } <= metrics_cols
+            # Polar Flow revision.
+            assert {"polar_account", "flow_night"} <= tables
+            account_cols = {c["name"] for c in insp.get_columns("polar_account")}
+            assert {
+                "person_id",
+                "polar_user_id",
+                "access_token",
+                "member_id",
+                "linked_at",
+                "last_sync_at",
+                "last_sync_note",
+            } <= account_cols
+            night_cols = {c["name"] for c in insp.get_columns("flow_night")}
+            assert {
+                "person_id",
+                "date",
+                "source_device_id",
+                "sleep_start",
+                "sleep_end",
+                "light_sleep_s",
+                "deep_sleep_s",
+                "rem_sleep_s",
+                "sleep_score",
+                "hr_avg_bpm",
+                "beat_to_beat_avg_ms",
+                "hrv_rmssd_ms",
+                "nightly_recharge_status",
+                "ans_charge",
+                "hrv_samples",
+                "fetched_at",
+            } <= night_cols
 
     def test_downgrade_removes_new_schema(self, tmp_path) -> None:
         app = _app(tmp_path)
         with app.app_context():
             upgrade(directory=MIGRATIONS_DIR)
-            # Step back over the context/env/respiration revision first.
+            # Step back over the Polar Flow revision first.
+            downgrade(directory=MIGRATIONS_DIR, revision="-1")
+            insp = _inspector(app)
+            tables = set(insp.get_table_names())
+            assert "polar_account" not in tables
+            assert "flow_night" not in tables
+            assert "session" in tables  # earlier revisions untouched
+            # Then over the context/env/respiration revision.
             downgrade(directory=MIGRATIONS_DIR, revision="-1")
             insp = _inspector(app)
             session_cols = {c["name"] for c in insp.get_columns("session")}
@@ -126,6 +164,8 @@ class TestMigrations:
             # And back up again.
             upgrade(directory=MIGRATIONS_DIR)
             insp = _inspector(app)
-            assert "trigger_tag" in set(insp.get_table_names())
+            tables = set(insp.get_table_names())
+            assert "trigger_tag" in tables
+            assert {"polar_account", "flow_night"} <= tables
             assert "tst_min" in {c["name"] for c in insp.get_columns("metrics")}
             assert "body_position" in {c["name"] for c in insp.get_columns("session")}

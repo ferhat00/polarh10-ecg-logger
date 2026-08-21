@@ -21,6 +21,44 @@
     </p>
   </div>
 
+  {% if config.POLAR_ENABLED %}
+    {% set account = person.polar_account %}
+    <p class="eyebrow">Polar Flow</p>
+    <div class="card">
+      {% if account %}
+        <table>
+          <tbody>
+            <tr><th>Linked</th><td class="num">{{ account.linked_at.strftime("%Y-%m-%d") }}</td></tr>
+            <tr><th>Last sync</th><td class="num">{{ account.last_sync_at.strftime("%Y-%m-%d %H:%M") if account.last_sync_at else "never" }}</td></tr>
+            {% if account.last_sync_note %}
+              <tr><th>Result</th><td>{{ account.last_sync_note }}</td></tr>
+            {% endif %}
+            <tr><th>Nights held</th><td class="num">{{ person.flow_nights | length }}</td></tr>
+          </tbody>
+        </table>
+        <p>
+          <form method="post" action="{{ url_for('polar.sync', person_id=person.id) }}" style="display:inline">
+            <button type="submit" class="button">Sync last 28 nights</button>
+          </form>
+          <form method="post" action="{{ url_for('polar.unlink', person_id=person.id) }}" style="display:inline">
+            <button type="submit" class="button button-quiet">Unlink</button>
+          </form>
+        </p>
+        <p class="hint">
+          Sleep and overnight-recovery figures Polar derived on the wrist. Shown as
+          context beside the ECG measurements, never merged with them — Polar's
+          RMSSD is PPG-derived over four hours of sleep, a session's is ECG-derived
+          over minutes. Unlinking deletes the stored token here; revoke it at
+          Polar's end at <span class="mono">account.polar.com</span>.
+        </p>
+      {% else %}
+        <p>No Polar Flow account linked. Linking pulls sleep and Nightly Recharge
+           for this person — including the nights with no ECG recording behind them.</p>
+        <p><a class="button" href="{{ url_for('polar.link', person_id=person.id) }}">Link Polar Flow</a></p>
+      {% endif %}
+    </div>
+  {% endif %}
+
   <p class="eyebrow">Sessions</p>
   <p><a class="button" href="{{ url_for('sessions.upload') }}">Upload a recording</a></p>
   {% if person.sessions %}

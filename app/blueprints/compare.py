@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from collections import defaultdict
 
 from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
@@ -154,6 +155,32 @@ def trends(person_id: int, comparison_key: str) -> str:
             f"the timeline above ({env_n['pm25']} of {n_points} sessions have "
             "environment data).",
         )
+
+    # Overnight recovery from Polar Flow, over the same calendar span. Its own
+    # series on its own dates, never merged into the session timeline: Flow's
+    # RMSSD is PPG-derived over four hours of sleep from a wrist band, the
+    # session figure is ECG-derived from R-peaks over minutes of controlled
+    # posture. Same unit, different measurement — they may diverge without
+    # either being wrong.
+    if dates:
+        nights = [
+            n
+            for n in person.flow_nights
+            if n.hrv_rmssd_ms is not None
+            and min(dates).date() <= n.date <= max(dates).date()
+        ]
+        if len(nights) >= 3:
+            figures["flow_rmssd"] = compare_figures.trend_figure(
+                [dt.datetime.combine(n.date, dt.time()) for n in nights],
+                [float(n.hrv_rmssd_ms) for n in nights],
+                None,
+                "RMSSD (ms)",
+                f"Overnight RMSSD from Polar Flow across the same span "
+                f"({len(nights)} night(s)) — wrist PPG over ~4 h of sleep. "
+                "Context for the timeline above, not the same measurement: "
+                "do not read the two as one series.",
+            )
+
     return render_template(
         "compare/trends.html", person=person, data=data, figures=figures
     )

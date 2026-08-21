@@ -37,6 +37,14 @@
       {% endfor %}
     {% endif %}
 
+    {% if figures.get("flow_rmssd") %}
+      <p class="eyebrow">Overnight recovery (Polar Flow)</p>
+      <figure class="card">
+        <img src="{{ figures['flow_rmssd'].data_uri }}" alt="overnight RMSSD trend" style="max-width:100%">
+        <figcaption class="hint">{{ figures["flow_rmssd"].caption }}</figcaption>
+      </figure>
+    {% endif %}
+
     {% set has_env = data.points | selectattr("env_temp_c", "ne", none) | list | length > 0 %}
     <p class="eyebrow">Sessions</p>
     <div class="card" style="overflow-x:auto">
