@@ -12,7 +12,10 @@ The orchestrator is the only entry point processing calls. Its contract:
 
 Primary-engine precedence: ``external-5class`` (raw-ECG deep network, when
 the user has installed it) > ``sleepecg`` (pre-trained GRU, when the
-optional extras are installed) > ``heuristic`` (always available).
+optional extras are installed) > ``heuristic`` (always available). A session
+may override that ranking with ``engine_pref`` — every available engine
+still runs (the agreement table is the point), only the choice of which one
+fills the queryable columns changes.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from app.ingest.loader import LoadedRecording
 from app.pipeline.process import PipelineResult
 from app.sleep.actigraphy import AccEpochs, activity_counts, apply_wake_override, wake_override_mask
 from app.sleep.agreement import AgreementRow, pairwise_agreement
-from app.sleep.engines import EngineStatus
+from app.sleep.engines import EngineStatus, registry
 from app.sleep.engines import heuristic as heuristic_engine
 from app.sleep.epochs import compute_epoch_features
 from app.sleep.stages import Hypnogram, make_epoch_grid
@@ -39,8 +42,10 @@ from app.sleep.summary import SleepSummary, stage_stats, summarize
 #: cannot contain the sleep architecture the numbers would claim to measure.
 MIN_STAGING_DURATION_S = 1800.0
 
-#: Queryable-columns precedence (first match that produced a hypnogram wins).
-ENGINE_PRECEDENCE = ("external-5class", "sleepecg", "heuristic")
+#: Queryable-columns precedence (first match that produced a hypnogram wins),
+#: used when the session expressed no preference. Aliased to the registry's
+#: order so the ranking and the engine list cannot drift apart.
+ENGINE_PRECEDENCE = registry.ENGINE_ORDER
 
 
 @dataclass
@@ -58,6 +63,9 @@ class SleepAnalysis:
     #: Engine key -> per-stage HR/RMSSD rows for the report table.
     stage_stats: dict[str, list[dict]] = field(default_factory=dict)
     engines: list[EngineStatus] = field(default_factory=list)
+    #: Engine key the session asked for, echoed back so the report can say
+    #: whether the numbers came from the user's choice or the default rank.
+    engine_pref: str | None = None
     notes: list[str] = field(default_factory=list)
 
     def hypnogram_for(self, engine: str) -> Hypnogram | None:
@@ -75,6 +83,7 @@ class SleepAnalysis:
         """JSON-safe representation for ``Metrics.extras['sleep']``."""
         return {
             "primary_engine": self.primary_engine,
+            "engine_pref": self.engine_pref,
             "engines": [asdict(s) for s in self.engines],
             "hypnograms": {
                 h.engine: {
@@ -131,14 +140,23 @@ def run_sleep_analysis(
     acc: LoadedAcc | None = None,
     acc_error: str | None = None,
     acc_epochs: AccEpochs | None = None,
+    engine_pref: str | None = None,
 ) -> SleepAnalysis:
     """Stage one night with every engine that can run here.
 
     Processing pre-loads the ACC file once (it also feeds posture
     classification) and passes ``acc``/``acc_error``/``acc_epochs`` in;
     ``acc_path`` remains the self-contained fallback for direct callers.
+
+    ``engine_pref`` names the engine whose numbers the session wants in the
+    queryable columns. It changes *which* hypnogram is primary, never which
+    engines run — the pairwise-agreement table is how a reader sees that two
+    algorithms disagree about the same night, and quietly dropping it to
+    save time would trade an honesty feature for speed. A preference that
+    produced no hypnogram (unavailable, failed, or unknown to this build)
+    falls back to the precedence order *and says so* in the notes.
     """
-    analysis = SleepAnalysis()
+    analysis = SleepAnalysis(engine_pref=engine_pref)
     duration_s = rec.duration_s
 
     if duration_s < MIN_STAGING_DURATION_S:
@@ -175,17 +193,18 @@ def run_sleep_analysis(
     )
 
     # --- engines (each individually wrapped) ------------------------------
+    # Probed once here and shared: the optional engines' status() calls touch
+    # the filesystem and importlib, and the dropdown that offered this choice
+    # already paid for one round of them.
+    statuses = {s.key: s for s in registry.engine_statuses(config)}
+
     _run_engine(
         analysis,
-        EngineStatus(
-            key=heuristic_engine.ENGINE_KEY,
-            label=heuristic_engine.ENGINE_LABEL,
-            available=True,
-        ),
+        statuses[heuristic_engine.ENGINE_KEY],
         lambda: heuristic_engine.stage_heuristic(features),
     )
 
-    _run_optional_engines(analysis, rec, result, ctx, config, stored_path)
+    _run_optional_engines(analysis, rec, result, ctx, config, stored_path, statuses)
 
     # --- movement wake-override (applies to every engine) -----------------
     if analysis.acc_epochs is not None and analysis.hypnograms:
@@ -207,10 +226,38 @@ def run_sleep_analysis(
     analysis.agreement = pairwise_agreement(analysis.hypnograms)
 
     produced = {h.engine for h in analysis.hypnograms}
-    analysis.primary_engine = next(
-        (key for key in ENGINE_PRECEDENCE if key in produced), None
-    )
+    ranked = next((key for key in ENGINE_PRECEDENCE if key in produced), None)
+    if engine_pref is not None and engine_pref in produced:
+        analysis.primary_engine = engine_pref
+    else:
+        # Never substitute silently: without this note an engine the user did
+        # not ask for would fill the queryable sleep columns unannounced.
+        analysis.primary_engine = ranked
+        if engine_pref is not None:
+            analysis.notes.append(_fallback_note(engine_pref, ranked, statuses))
     return analysis
+
+
+def _fallback_note(
+    engine_pref: str, ranked: str | None, statuses: dict[str, EngineStatus]
+) -> str:
+    """Say what was asked for, why it didn't run, and what ran instead."""
+    wanted = statuses.get(engine_pref)
+    label = wanted.label if wanted is not None else engine_pref
+    reason = (
+        f" ({wanted.unavailable_reason})"
+        if wanted is not None and wanted.unavailable_reason
+        else ""
+    )
+    instead = (
+        f"the numbers come from {statuses[ranked].label if ranked in statuses else ranked} instead"
+        if ranked is not None
+        else "no engine staged this night"
+    )
+    return (
+        f"You chose {label} for this night, but it produced no staging"
+        f"{reason} — {instead}."
+    )
 
 
 def _run_engine(analysis: SleepAnalysis, status: EngineStatus, run) -> None:
@@ -241,13 +288,14 @@ def _run_optional_engines(
     ctx: PersonContext,
     config: Mapping,
     stored_path: str | None,
+    statuses: dict[str, EngineStatus],
 ) -> None:
     """Optional engines: each reports an EngineStatus even when absent."""
     from app.sleep.engines import external_ecg_staging, sleepecg_engine
 
     _run_engine(
         analysis,
-        sleepecg_engine.status(),
+        statuses[sleepecg_engine.ENGINE_KEY],
         lambda: sleepecg_engine.stage_sleepecg(
             result.peak_times_s,
             rec.start_time,
@@ -273,4 +321,4 @@ def _run_optional_engines(
             config,
         )
 
-    _run_engine(analysis, external_ecg_staging.status(config), _external)
+    _run_engine(analysis, statuses[external_ecg_staging.ENGINE_KEY], _external)

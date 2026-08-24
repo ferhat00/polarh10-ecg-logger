@@ -20,6 +20,7 @@ from flask import (
 )
 from sqlalchemy import select
 
+from app.activities.registry import requests_sleep_staging
 from app.activities.seed import ensure_builtin_activity_types
 from app.extensions import db
 from app.ingest.loader import CANONICAL_COLUMNS
@@ -34,6 +35,7 @@ from app.models import (
 )
 from app.polar import RECHARGE_STATUS, night_before
 from app.processing import report_path_for, submit_processing
+from app.sleep.engines.registry import engine_status, engine_statuses, vocab_summary
 from app.triggers.seed import ensure_builtin_trigger_tags
 
 bp = Blueprint("sessions", __name__, url_prefix="/sessions")
@@ -208,6 +210,21 @@ def detail(session_id: int) -> str:
     ensure_builtin_trigger_tags()
     questions = _mapping_questions(session)
     extras = session.metrics.extras if session.metrics else None
+
+    # The staging-engine picker, only where it means something: a finished
+    # night. Statuses are probed live so an engine installed since the last
+    # run appears immediately, and one uninstalled since then goes grey with
+    # its reason rather than silently vanishing.
+    sleep_engines: list = []
+    auto_label = None
+    if (
+        session.processing_status == ProcessingStatus.DONE
+        and requests_sleep_staging(session.activity_type)
+    ):
+        sleep_engines = engine_statuses(current_app.config)
+        auto = next((s for s in sleep_engines if s.available), None)
+        auto_label = auto.label if auto else None
+
     return render_template(
         "sessions/detail.html",
         session=session,
@@ -222,6 +239,9 @@ def detail(session_id: int) -> str:
         flow_night=night_before(session.person, session.recorded_at),
         recharge_status=RECHARGE_STATUS,
         has_report=report_path_for(session).exists() if session.stored_path else False,
+        sleep_engines=sleep_engines,
+        auto_label=auto_label,
+        engine_vocabs={s.key: vocab_summary(s.key) for s in sleep_engines},
     )
 
 
@@ -309,13 +329,59 @@ def mapping(session_id: int) -> str | Response:
 
 @bp.post("/<int:session_id>/reprocess")
 def reprocess(session_id: int) -> Response:
+    """Re-run the whole pipeline, optionally switching the staging engine.
+
+    The one reprocess entry point for every caller: the error-retry button,
+    the format-mapping form, the ectopy-backfill list, and the sleep-engine
+    picker. Callers with no opinion about staging simply omit the field.
+    """
     session = db.get_or_404(Session, session_id)
+
+    # Field absent = "leave the stored preference alone" (every pre-existing
+    # caller); field present but empty = the explicit "automatic" sentinel.
+    # Hence membership, not .get().
+    if "sleep_engine" in request.form:
+        error = apply_sleep_engine_pref(session, request.form["sleep_engine"])
+        if error:
+            db.session.rollback()
+            flash(error, "error")
+            return redirect(url_for("sessions.detail", session_id=session.id))
+
     session.processing_status = ProcessingStatus.PENDING
     session.error_message = None
     db.session.commit()
     submit_processing(current_app._get_current_object(), session.id)
     flash("Re-analysis started.", "ok")
     return redirect(url_for("sessions.detail", session_id=session.id))
+
+
+def apply_sleep_engine_pref(session: Session, raw: str) -> str | None:
+    """Validate and store a requested staging engine; returns an error message.
+
+    An unknown or unavailable key is refused outright rather than quietly
+    falling back to the precedence order: staging with a different algorithm
+    than the one asked for would put an unrequested number in the queryable
+    sleep columns. Availability is re-probed against the live config, never
+    trusted from the rendered page — a page rendered before the venv changed
+    must not be able to queue an impossible run.
+
+    The probe-to-run gap is an unclosable TOCTOU (the engine runs later, on
+    the worker thread). This is a UX guard; the orchestrator's fallback note
+    is the honest end state if the engine disappears in between.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        session.sleep_engine_pref = None  # explicit "automatic"
+        return None
+    if not requests_sleep_staging(session.activity_type):
+        return "This session isn't a sleep recording, so it has no staging algorithm."
+    status = engine_status(raw, current_app.config)
+    if status is None:
+        return f"Unknown sleep algorithm {raw!r} — nothing was re-analysed."
+    if not status.available:
+        return f"{status.label} can't run here — {status.unavailable_reason}"
+    session.sleep_engine_pref = status.key
+    return None
 
 
 @bp.get("/<int:session_id>/report")

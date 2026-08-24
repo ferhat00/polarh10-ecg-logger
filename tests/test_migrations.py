@@ -64,6 +64,7 @@ class TestMigrations:
                 "acc_original_filename",
                 "acc_stored_path",
                 "acc_file_sha256",
+                "sleep_engine_pref",
             } <= session_cols
             person_cols = {c["name"] for c in insp.get_columns("person")}
             assert "sex" in person_cols
@@ -168,4 +169,6 @@ class TestMigrations:
             assert "trigger_tag" in tables
             assert {"polar_account", "flow_night"} <= tables
             assert "tst_min" in {c["name"] for c in insp.get_columns("metrics")}
-            assert "body_position" in {c["name"] for c in insp.get_columns("session")}
+            session_cols = {c["name"] for c in insp.get_columns("session")}
+            assert "body_position" in session_cols
+            assert "sleep_engine_pref" in session_cols

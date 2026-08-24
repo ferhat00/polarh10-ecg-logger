@@ -209,3 +209,216 @@ class TestSleepSessionEndToEnd:
         assert metrics.tst_min is None
         notes = " ".join(metrics.extras["sleep"]["notes"])
         assert "minimum for sleep staging" in notes
+
+
+class TestEngineChoiceUI:
+    """The staging-engine dropdown on a finished night, and its validation.
+
+    The autouse ``heuristic_only`` fixture pins sleepecg to unavailable, so
+    these run identically with and without the optional extras installed.
+    """
+
+    @pytest.fixture()
+    def night(
+        self, client: FlaskClient, app: Flask, person: Person, sleep_activity_id: int
+    ) -> Session:
+        _upload(client, person, sleep_activity_id, _night_csv_bytes())
+        session = db.session.query(Session).one()
+        assert session.processing_status == ProcessingStatus.DONE
+        return session
+
+    def test_dropdown_offers_engines_with_their_reasons(
+        self, client: FlaskClient, night: Session
+    ) -> None:
+        html = client.get(f"/sessions/{night.id}").get_data(as_text=True)
+        assert 'name="sleep_engine"' in html
+        assert 'value="heuristic"' in html
+        # Unavailable engines stay visible, disabled, with their exact reason.
+        assert 'value="sleepecg"' in html
+        assert "disabled" in html
+        assert "disabled in this test" in html
+        assert "ECGLOG_SLEEP_EXTERNAL_DIR" in html
+        # And the dropdown says what each engine can tell apart.
+        assert "Wake/Light/Deep/REM" in html
+
+    def test_no_dropdown_for_a_non_sleep_session(
+        self, client: FlaskClient, app: Flask, person: Person
+    ) -> None:
+        client.get("/sessions/upload")
+        sitting = (
+            db.session.query(ActivityType).filter_by(profile_key="sitting").one().id
+        )
+        _upload(client, person, sitting, _night_csv_bytes(seed=33))
+        session = db.session.query(Session).one()
+        html = client.get(f"/sessions/{session.id}").get_data(as_text=True)
+        assert 'name="sleep_engine"' not in html
+
+    def test_choosing_an_available_engine_sticks_and_reruns(
+        self, client: FlaskClient, night: Session
+    ) -> None:
+        resp = client.post(
+            f"/sessions/{night.id}/reprocess", data={"sleep_engine": "heuristic"}
+        )
+        assert resp.status_code == 302
+        # Processing ran in its own app context, so this long-lived test
+        # session is holding a pre-reprocess copy; a real request reads fresh.
+        db.session.expire_all()
+        session = db.session.query(Session).one()
+        assert session.sleep_engine_pref == "heuristic"
+        assert session.processing_status == ProcessingStatus.DONE
+        metrics = db.session.query(Metrics).one()
+        assert metrics.extras["sleep"]["engine_pref"] == "heuristic"
+        assert metrics.sleep_engine == "heuristic"
+
+    def test_unavailable_engine_is_refused_and_changes_nothing(
+        self, client: FlaskClient, night: Session
+    ) -> None:
+        before = db.session.query(Metrics).one().tst_min
+        resp = client.post(
+            f"/sessions/{night.id}/reprocess",
+            data={"sleep_engine": "sleepecg"},
+            follow_redirects=True,
+        )
+        html = resp.get_data(as_text=True)
+        assert "disabled in this test" in html
+        session = db.session.query(Session).one()
+        assert session.sleep_engine_pref is None
+        assert session.processing_status == ProcessingStatus.DONE
+        assert db.session.query(Metrics).one().tst_min == before
+
+    def test_unknown_engine_is_refused(
+        self, client: FlaskClient, night: Session
+    ) -> None:
+        resp = client.post(
+            f"/sessions/{night.id}/reprocess",
+            data={"sleep_engine": "totally-made-up"},
+            follow_redirects=True,
+        )
+        assert "Unknown sleep algorithm" in resp.get_data(as_text=True)
+        assert db.session.query(Session).one().sleep_engine_pref is None
+
+    def test_empty_value_clears_the_preference(
+        self, client: FlaskClient, night: Session
+    ) -> None:
+        client.post(
+            f"/sessions/{night.id}/reprocess", data={"sleep_engine": "heuristic"}
+        )
+        assert db.session.query(Session).one().sleep_engine_pref == "heuristic"
+        client.post(f"/sessions/{night.id}/reprocess", data={"sleep_engine": ""})
+        assert db.session.query(Session).one().sleep_engine_pref is None
+
+    def test_plain_reprocess_leaves_the_preference_alone(
+        self, client: FlaskClient, night: Session
+    ) -> None:
+        """The error-retry and ectopy-backfill buttons send no engine field."""
+        client.post(
+            f"/sessions/{night.id}/reprocess", data={"sleep_engine": "heuristic"}
+        )
+        client.post(f"/sessions/{night.id}/reprocess")
+        session = db.session.query(Session).one()
+        assert session.sleep_engine_pref == "heuristic"
+        assert session.processing_status == ProcessingStatus.DONE
+
+    def test_report_records_whose_choice_it_was(
+        self, client: FlaskClient, night: Session
+    ) -> None:
+        client.post(
+            f"/sessions/{night.id}/reprocess", data={"sleep_engine": "heuristic"}
+        )
+        html = client.get(f"/sessions/{night.id}/report").get_data(as_text=True)
+        assert "chosen by you" in html
+        assert "(your choice)" in html
+
+
+class TestSleepHistory:
+    @pytest.fixture()
+    def two_nights(
+        self, client: FlaskClient, app: Flask, person: Person, sleep_activity_id: int
+    ) -> list[Session]:
+        _upload(client, person, sleep_activity_id, _night_csv_bytes(seed=21))
+        _upload(client, person, sleep_activity_id, _night_csv_bytes(seed=22))
+        sessions = db.session.query(Session).all()
+        assert len(sessions) == 2
+        return sessions
+
+    def test_history_lists_nights_with_their_engine(
+        self, client: FlaskClient, two_nights: list[Session]
+    ) -> None:
+        html = client.get("/sleep/").get_data(as_text=True)
+        for s in two_nights:
+            assert f"/sessions/{s.id}" in html
+        assert "heuristic" in html
+        assert 'name="sleep_engine"' in html
+
+    def test_history_excludes_non_sleep_sessions(
+        self, client: FlaskClient, app: Flask, person: Person
+    ) -> None:
+        client.get("/sessions/upload")
+        sitting = (
+            db.session.query(ActivityType).filter_by(profile_key="sitting").one().id
+        )
+        _upload(client, person, sitting, _night_csv_bytes(seed=34))
+        session = db.session.query(Session).one()
+        html = client.get("/sleep/").get_data(as_text=True)
+        assert f"/sessions/{session.id}" not in html
+        assert "No sleep sessions yet" in html
+
+    def test_batch_sets_the_engine_on_every_selected_night(
+        self, client: FlaskClient, two_nights: list[Session]
+    ) -> None:
+        resp = client.post(
+            "/sleep/reanalyse",
+            data={
+                "sessions": [str(s.id) for s in two_nights],
+                "sleep_engine": "heuristic",
+            },
+            follow_redirects=True,
+        )
+        assert "2 night(s) queued" in resp.get_data(as_text=True)
+        db.session.expire_all()
+        for s in db.session.query(Session).all():
+            assert s.sleep_engine_pref == "heuristic"
+            assert s.processing_status == ProcessingStatus.DONE
+
+    def test_batch_keep_leaves_each_nights_choice_alone(
+        self, client: FlaskClient, two_nights: list[Session]
+    ) -> None:
+        first, second = two_nights
+        client.post(
+            f"/sessions/{first.id}/reprocess", data={"sleep_engine": "heuristic"}
+        )
+        client.post(
+            "/sleep/reanalyse",
+            data={
+                "sessions": [str(s.id) for s in two_nights],
+                "sleep_engine": "keep",
+            },
+        )
+        prefs = {s.id: s.sleep_engine_pref for s in db.session.query(Session).all()}
+        assert prefs[first.id] == "heuristic"
+        assert prefs[second.id] is None
+
+    def test_batch_rejects_an_unavailable_engine_without_touching_anything(
+        self, client: FlaskClient, two_nights: list[Session]
+    ) -> None:
+        resp = client.post(
+            "/sleep/reanalyse",
+            data={
+                "sessions": [str(s.id) for s in two_nights],
+                "sleep_engine": "sleepecg",
+            },
+            follow_redirects=True,
+        )
+        assert "disabled in this test" in resp.get_data(as_text=True)
+        for s in db.session.query(Session).all():
+            assert s.sleep_engine_pref is None
+
+    def test_batch_with_nothing_selected_says_so(
+        self, client: FlaskClient, two_nights: list[Session]
+    ) -> None:
+        resp = client.post(
+            "/sleep/reanalyse",
+            data={"sleep_engine": "heuristic"},
+            follow_redirects=True,
+        )
+        assert "No nights were selected" in resp.get_data(as_text=True)
