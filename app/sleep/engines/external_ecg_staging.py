@@ -56,6 +56,8 @@ from app.sleep.stages import (
 
 ENGINE_KEY = "external-5class"
 ENGINE_LABEL = "External 5-class deep net (adammj/ecg-sleep-staging)"
+#: Declared for the UI before the engine runs (see heuristic.ENGINE_VOCAB).
+ENGINE_VOCAB = StageVocab.AASM_5
 
 EXTERNAL_ACCURACY_NOTE = (
     "External deep network (adammj/ecg-sleep-staging): 5-class AASM staging "
@@ -281,7 +283,7 @@ def stage_external(
     return Hypnogram(
         engine=ENGINE_KEY,
         engine_label=ENGINE_LABEL,
-        vocab=StageVocab.AASM_5,
+        vocab=ENGINE_VOCAB,
         epoch_len_s=EPOCH_LEN_S,
         epoch_start_s=grid,
         stages=stages,

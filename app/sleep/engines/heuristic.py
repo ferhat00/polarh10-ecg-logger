@@ -45,6 +45,10 @@ from app.sleep.stages import (
 
 ENGINE_KEY = "heuristic"
 ENGINE_LABEL = "Built-in rules (cardio-actigraphy)"
+#: Declared here so the UI can name the stages this engine can tell apart
+#: before it runs; the staging functions below use it as their vocab so
+#: the declaration and the emitted hypnogram cannot drift.
+ENGINE_VOCAB = StageVocab.WAKE_LIGHT_DEEP_REM
 
 HEURISTIC_ACCURACY_NOTE = (
     "Rule-based estimate: expect roughly 65-75% epoch agreement with "
@@ -178,7 +182,7 @@ def stage_heuristic(features: EpochFeatures) -> Hypnogram:
         return Hypnogram(
             engine=ENGINE_KEY,
             engine_label=ENGINE_LABEL,
-            vocab=StageVocab.WAKE_LIGHT_DEEP_REM,
+            vocab=ENGINE_VOCAB,
             epoch_len_s=EPOCH_LEN_S,
             epoch_start_s=features.epoch_start_s,
             stages=np.array([], dtype=np.int8),
@@ -218,7 +222,7 @@ def stage_heuristic(features: EpochFeatures) -> Hypnogram:
     return Hypnogram(
         engine=ENGINE_KEY,
         engine_label=ENGINE_LABEL,
-        vocab=StageVocab.WAKE_LIGHT_DEEP_REM,
+        vocab=ENGINE_VOCAB,
         epoch_len_s=EPOCH_LEN_S,
         epoch_start_s=features.epoch_start_s,
         stages=stages,

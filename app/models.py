@@ -62,6 +62,15 @@ class Person(db.Model):
     annotations: Mapped[list[Annotation]] = relationship(
         back_populates="person", cascade="all, delete-orphan"
     )
+    #: Opt-in Polar Flow link. Deleting the person deletes the stored token.
+    polar_account: Mapped[PolarAccount | None] = relationship(
+        back_populates="person", cascade="all, delete-orphan", uselist=False
+    )
+    flow_nights: Mapped[list[FlowNight]] = relationship(
+        back_populates="person",
+        cascade="all, delete-orphan",
+        order_by="FlowNight.date",
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<Person {self.id} {self.slug!r}>"
@@ -254,6 +263,14 @@ class Session(db.Model):
     #: User answers from the format-mapping form (loader FormatOverrides),
     #: kept so reprocessing applies them again.
     format_overrides: Mapped[dict | None] = mapped_column(JSON, default=None)
+    #: Sleep-staging engine this session asked for, by engine key
+    #: ("heuristic" / "sleepecg" / "external-5class"). NULL means automatic:
+    #: run everything available and let the precedence order pick. Kept so
+    #: re-analysis from anywhere applies the choice again (the
+    #: format_overrides precedent above). Deliberately unconstrained — engine
+    #: keys are code identifiers, and a row naming an engine a later build
+    #: dropped must degrade to "automatic, with a note", not a DB error.
+    sleep_engine_pref: Mapped[str | None] = mapped_column(String(40), default=None)
     #: Which engine actually produced the analysis ("neurokit2" / "biosppy").
     engine_used: Mapped[str | None] = mapped_column(String(40), default=None)
 
@@ -442,3 +459,134 @@ class Annotation(db.Model):
     created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
 
     person: Mapped[Person] = relationship(back_populates="annotations")
+
+
+class PolarAccount(db.Model):
+    """A linked Polar Flow account, one per person (opt-in AccessLink sync).
+
+    The access token is a long-lived bearer credential for the wearer's Polar
+    account: AccessLink tokens do not expire unless revoked, and there is no
+    refresh token. It is stored here in plaintext because the app's threat
+    model is a single local machine and the token must survive restarts —
+    which is exactly why the person page offers an Unlink button and the docs
+    name https://account.polar.com as the way to revoke it at the source.
+
+    ``polar_user_id`` is Polar's own identifier (``x_user_id`` from the token
+    response); ``member_id`` is the identifier we chose when registering.
+    """
+
+    __tablename__ = "polar_account"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Unique: one Flow account per person. Re-linking replaces the row.
+    person_id: Mapped[int] = mapped_column(
+        ForeignKey("person.id"), unique=True, index=True
+    )
+    polar_user_id: Mapped[str] = mapped_column(String(64), index=True)
+    access_token: Mapped[str] = mapped_column(String(255))
+    member_id: Mapped[str] = mapped_column(String(120))
+    linked_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+    last_sync_at: Mapped[dt.datetime | None] = mapped_column(default=None)
+    #: Human-readable outcome of the last sync, including honest failures
+    #: ("rate limited", "re-authorisation needed"). Shown on the person page.
+    last_sync_note: Mapped[str | None] = mapped_column(String(500), default=None)
+
+    person: Mapped[Person] = relationship(back_populates="polar_account")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<PolarAccount person={self.person_id} polar_user={self.polar_user_id!r}>"
+
+
+class FlowNight(db.Model):
+    """One night of Polar Flow data for one person, keyed by Polar's result date.
+
+    Scalars are real columns rather than an extras blob because trends and the
+    trigger statistics group and filter on them — the same reasoning as the
+    ectopy and environment columns on ``Session``. The three sample maps are
+    JSON: they are at most a few hundred points, are never analysed
+    sample-by-sample, and so do not warrant the ``.npz`` treatment that ECG
+    arrays get.
+
+    Every field is nullable. A night with sleep but no Nightly Recharge (or
+    the reverse) is a normal outcome, not an error: Polar computes them from
+    different windows and either can be missing.
+    """
+
+    __tablename__ = "flow_night"
+    __table_args__ = (
+        UniqueConstraint("person_id", "date", name="uq_flow_night_person_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
+    #: Polar's "result date" for the night — the key both endpoints agree on.
+    date: Mapped[dt.date] = mapped_column(index=True)
+    #: Which device produced the night. The only way to tell a Loop night from
+    #: a watch night once several devices share one Flow account.
+    source_device_id: Mapped[str | None] = mapped_column(String(64), default=None)
+
+    # --- Sleep Plus Stages (GET /v3/users/sleep/{date}) -------------------
+    sleep_start: Mapped[dt.datetime | None] = mapped_column(default=None)
+    sleep_end: Mapped[dt.datetime | None] = mapped_column(default=None)
+    #: Stage durations in seconds, as Polar reports them.
+    light_sleep_s: Mapped[int | None] = mapped_column(default=None)
+    deep_sleep_s: Mapped[int | None] = mapped_column(default=None)
+    rem_sleep_s: Mapped[int | None] = mapped_column(default=None)
+    unrecognized_sleep_s: Mapped[int | None] = mapped_column(default=None)
+    total_interruption_s: Mapped[int | None] = mapped_column(default=None)
+    #: Polar's own 1–100 composite. A proprietary score, displayed as-is and
+    #: never fed into screening.
+    sleep_score: Mapped[int | None] = mapped_column(default=None)
+    sleep_charge: Mapped[int | None] = mapped_column(default=None)
+    continuity: Mapped[float | None] = mapped_column(default=None)
+    continuity_class: Mapped[int | None] = mapped_column(default=None)
+    sleep_cycles: Mapped[int | None] = mapped_column(default=None)
+
+    # --- Nightly Recharge (GET /v3/users/nightly-recharge/{date}) ---------
+    # All averaged over a 4-hour window starting 30 min after sleep onset.
+    hr_avg_bpm: Mapped[int | None] = mapped_column(default=None)
+    beat_to_beat_avg_ms: Mapped[int | None] = mapped_column(default=None)
+    #: Polar documents this explicitly as RMSSD in milliseconds. It is NOT
+    #: comparable to a session's RMSSD: PPG-derived, wrist-worn, four hours of
+    #: sleep, versus ECG R-peaks over minutes of controlled posture.
+    hrv_rmssd_ms: Mapped[int | None] = mapped_column(default=None)
+    breathing_rate_avg: Mapped[float | None] = mapped_column(default=None)
+    #: 1 (very poor) – 6 (very good).
+    nightly_recharge_status: Mapped[int | None] = mapped_column(default=None)
+    #: −10.0 … +10.0, relative to the wearer's own trailing 28 days.
+    ans_charge: Mapped[float | None] = mapped_column(default=None)
+    #: 1 (much below usual) – 5 (much above usual).
+    ans_charge_status: Mapped[int | None] = mapped_column(default=None)
+
+    # --- Sample series (small, display-only) ------------------------------
+    #: {"00:41": 14, ...} — 5-minute HRV averages in ms.
+    hrv_samples: Mapped[dict | None] = mapped_column(JSON, default=None)
+    #: {"00:39": 13.4, ...} — 5-minute breathing-rate averages.
+    breathing_samples: Mapped[dict | None] = mapped_column(JSON, default=None)
+    #: [{"sample_time": "00:02:08", "heart_rate": 63}, ...] for the day.
+    hr_samples: Mapped[list | None] = mapped_column(JSON, default=None)
+
+    fetched_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+
+    person: Mapped[Person] = relationship(back_populates="flow_nights")
+
+    @property
+    def total_sleep_s(self) -> int | None:
+        """Summed stage durations, or None when no stage data arrived."""
+        parts = [
+            self.light_sleep_s,
+            self.deep_sleep_s,
+            self.rem_sleep_s,
+            self.unrecognized_sleep_s,
+        ]
+        present = [p for p in parts if p is not None]
+        return sum(present) if present else None
+
+    def has_sleep(self) -> bool:
+        return self.sleep_start is not None or self.sleep_score is not None
+
+    def has_recharge(self) -> bool:
+        return self.hrv_rmssd_ms is not None or self.nightly_recharge_status is not None
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<FlowNight person={self.person_id} {self.date}>"

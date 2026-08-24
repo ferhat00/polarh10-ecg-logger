@@ -3,12 +3,20 @@
 Everything is configurable via environment variables but defaults to sane
 local values. All health data stays on the local filesystem — there is no
 cloud storage or telemetry, and by default no external API call of any kind.
-The single, deliberate exception is the opt-in weather lookup: when
-``ECGLOG_WEATHER_ENABLED`` is set together with a home latitude/longitude,
-each processed session fetches historical weather/air quality from
-Open-Meteo. Only a date and the configured coordinates are ever sent; no
-health data leaves the machine, and with the flag unset (the default) the
-app never opens a network connection.
+There are exactly two opt-in exceptions, both off unless explicitly enabled,
+and they differ in kind:
+
+1. **The weather lookup** (``ECGLOG_WEATHER_ENABLED`` plus a home
+   latitude/longitude) sends data *outward*: a date and the configured
+   coordinates, nothing else. No health data leaves the machine.
+2. **Polar Flow sync** (``ECGLOG_POLAR_ENABLED`` plus AccessLink client
+   credentials) pulls data *inward*: sleep and overnight-recovery figures the
+   wearer's Polar account already holds. It also stores a long-lived bearer
+   token for that account in the local SQLite file — AccessLink tokens do not
+   expire unless revoked. Unlink from the person page, or revoke at
+   https://account.polar.com.
+
+With both flags unset (the default) the app never opens a network connection.
 """
 
 from __future__ import annotations
@@ -25,6 +33,11 @@ def _optional_float(name: str) -> float | None:
         return float(raw)
     except ValueError:
         return None
+
+
+def _optional_str(name: str) -> str | None:
+    raw = os.environ.get(name)
+    return raw.strip() or None if raw else None
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -76,6 +89,28 @@ class Config:
     #: never the upload request, and a failed one never fails the session.
     WEATHER_TIMEOUT_S: int = int(os.environ.get("ECGLOG_WEATHER_TIMEOUT_S", 10))
 
+    # --- Opt-in Polar Flow sync via AccessLink (docs/POLAR_FLOW.md) -------
+    #: OFF by default: with this unset the Polar routes are not registered and
+    #: no request to Polar is ever made.
+    POLAR_ENABLED: bool = os.environ.get("ECGLOG_POLAR_ENABLED", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    #: AccessLink *client* credentials from https://admin.polaraccesslink.com.
+    #: These identify the application, not the wearer, and live in the
+    #: environment only — never in the database, never in the repository.
+    POLAR_CLIENT_ID: str | None = _optional_str("ECGLOG_POLAR_CLIENT_ID")
+    POLAR_CLIENT_SECRET: str | None = _optional_str("ECGLOG_POLAR_CLIENT_SECRET")
+    #: Must match a redirect URL registered for the client *byte for byte* —
+    #: "localhost" and "127.0.0.1" are different registrations even though
+    #: they reach the same server.
+    POLAR_REDIRECT_URI: str = os.environ.get(
+        "ECGLOG_POLAR_REDIRECT_URI", "http://localhost:5000/polar/callback"
+    )
+    #: Per-request timeout. A slow sync delays only the sync, never a session.
+    POLAR_TIMEOUT_S: int = int(os.environ.get("ECGLOG_POLAR_TIMEOUT_S", 10))
+
     @property
     def UPLOAD_DIR(self) -> Path:  # noqa: N802 - Flask config naming convention
         return self.DATA_DIR / "uploads"
@@ -97,3 +132,6 @@ class TestConfig(Config):
     WEATHER_ENABLED: bool = False
     HOME_LAT: float | None = None
     HOME_LON: float | None = None
+    POLAR_ENABLED: bool = False
+    POLAR_CLIENT_ID: str | None = None
+    POLAR_CLIENT_SECRET: str | None = None

@@ -251,7 +251,7 @@ ul.notes { font-size: 0.82rem; color: #444; }
   <ul class="notes">
     {% for status in d.sleep.engines %}
       <li>
-        <strong>{{ status.label }}</strong>{% if status.key == d.sleep.primary_engine %} — primary (fills the summary numbers above){% endif %}:
+        <strong>{{ status.label }}</strong>{% if status.key == d.sleep.primary_engine %} — primary (fills the summary numbers above){% endif %}{% if status.key == d.sleep.engine_pref %} — chosen by you{% endif %}:
         {% if status.available %}ran.{% else %}not available — {{ status.unavailable_reason }}{% endif %}
       </li>
     {% endfor %}

@@ -2,14 +2,22 @@
 
 The design follows the trigger-trial literature (docs/RESEARCH.md §4):
 
-* Unit of analysis is the session. Three outcomes are supported (the
+* Unit of analysis is the session. Four outcomes are supported (the
   ``OUTCOMES`` registry): **ectopy** — the original confirmed-ectopic count
   with ``log(analysed hours)`` as the exposure offset, so motion-excluded
   time never inflates a rate; **ln_rmssd** — the trend-tracking log of
   RMSSD, fit by OLS with robust (HC1) errors and reported as a % change;
   **resting_hr** — the lowest-sustained-60 s heart rate, fit the same way
-  and reported as a Δbpm. All outcomes share the same design matrix
-  (tag + circadian pair + activity dummies) and the same minimum-n guards.
+  and reported as a Δbpm; and **flow_rmssd** — the overnight RMSSD Polar
+  Flow computed for the night the session followed, on the same log scale.
+  All outcomes share the same design matrix (tag + circadian pair + activity
+  dummies) and the same minimum-n guards.
+* ``flow_rmssd`` measures something the other three cannot: it exists for
+  nights with no recording behind them, and it is unaffected by how the
+  session itself went. It is also a *different instrument* — wrist PPG over
+  four hours of sleep, not chest ECG over minutes — so an effect on it is
+  never interchangeable with an effect on ``ln_rmssd``, and the two are
+  offered as separate outcomes rather than pooled.
 * Counts are modelled negative-binomially — hourly ectopic burden shows a
   coefficient of variation near 60 % (Hamon et al., Heart Rhythm 2015) and
   6-hour windows swing 12-fold (Ahn et al., J Med Internet Res 2024), so a
@@ -109,6 +117,14 @@ OUTCOMES: dict[str, OutcomeSpec] = {
         null_value=0.0,
         model_label="linear model, robust errors",
     ),
+    "flow_rmssd": OutcomeSpec(
+        key="flow_rmssd",
+        label="Overnight RMSSD (Polar Flow)",
+        kind="pct_change",
+        group_unit="ms",
+        null_value=0.0,
+        model_label="linear model on ln(overnight RMSSD), robust errors",
+    ),
 }
 
 
@@ -127,6 +143,10 @@ class SessionObservation:
     ln_rmssd: float | None = None
     rmssd_ms: float | None = None
     resting_hr_bpm: float | None = None
+    #: Overnight RMSSD from Polar Flow for the night this session followed,
+    #: on the same log scale as ``ln_rmssd`` (None when unlinked or unsynced).
+    ln_flow_rmssd: float | None = None
+    flow_rmssd_ms: float | None = None
     #: Environment context (None when never fetched).
     env_temp_c: float | None = None
     env_pm25_ugm3: float | None = None
@@ -139,6 +159,8 @@ class SessionObservation:
             return self.ln_rmssd
         if outcome.key == "resting_hr":
             return self.resting_hr_bpm
+        if outcome.key == "flow_rmssd":
+            return self.ln_flow_rmssd
         raise KeyError(outcome.key)
 
 
@@ -206,6 +228,14 @@ def assemble_observations(
     """Sessions of one person as model observations, with usage accounting."""
     observations: list[SessionObservation] = []
     notes = AssemblyNotes()
+    # Polar dates a night by the morning it ends, so the night a session
+    # followed carries the session's own date. Built once rather than
+    # searched per session.
+    nights_by_date = {
+        night.date: night
+        for night in person.flow_nights
+        if night.hrv_rmssd_ms is not None and night.hrv_rmssd_ms > 0
+    }
     for session in person.sessions:
         if session.processing_status != ProcessingStatus.DONE:
             notes.n_not_done += 1
@@ -222,10 +252,13 @@ def assemble_observations(
         extras = metrics.extras or {}
         rmssd = metrics.rmssd_ms
         resting = extras.get("resting_hr_bpm")
+        recorded_at = session.recorded_at or session.created_at
+        night = nights_by_date.get(recorded_at.date())
+        flow_rmssd = float(night.hrv_rmssd_ms) if night is not None else None
         observations.append(
             SessionObservation(
                 session_id=session.id,
-                recorded_at=session.recorded_at or session.created_at,
+                recorded_at=recorded_at,
                 analysed_hours=analysed_s / 3600.0,
                 duration_s=session.duration_s or analysed_s,
                 ectopy_count=int(metrics.ectopy_beats_n),
@@ -236,6 +269,8 @@ def assemble_observations(
                 ln_rmssd=math.log(rmssd) if rmssd and rmssd > 0 else None,
                 rmssd_ms=float(rmssd) if rmssd is not None else None,
                 resting_hr_bpm=float(resting) if resting is not None else None,
+                ln_flow_rmssd=math.log(flow_rmssd) if flow_rmssd else None,
+                flow_rmssd_ms=flow_rmssd,
                 env_temp_c=session.env_temp_c,
                 env_pm25_ugm3=session.env_pm25_ugm3,
             )
@@ -394,7 +429,8 @@ def _group_summary(
     if not values:
         return None
     mean = float(np.mean(values))
-    return math.exp(mean) if outcome.key == "ln_rmssd" else mean
+    # Log-scale outcomes are summarised back in their display unit (ms).
+    return math.exp(mean) if outcome.key in ("ln_rmssd", "flow_rmssd") else mean
 
 
 def _fit_gaussian_effect(

@@ -52,11 +52,12 @@ scale plus retraining). What it adopts instead:
 
 Every engine scores the same canonical grid — 30 s epochs from the ECG
 recording start — and returns a hypnogram with a mandatory accuracy note.
-All computed hypnograms are shown; the **primary** engine (best available:
-external > sleepecg > heuristic) fills the queryable per-night columns
-(TST, efficiency, SOL, WASO, stage minutes, awakenings). When several
-engines ran, the report shows epoch-by-epoch agreement (Cohen's κ); low
-agreement means the night's numbers are a range, not a value.
+All computed hypnograms are shown; the **primary** engine — best available
+(external > sleepecg > heuristic) unless you chose one for that night
+(§3.4) — fills the queryable per-night columns (TST, efficiency, SOL, WASO,
+stage minutes, awakenings). When several engines ran, the report shows
+epoch-by-epoch agreement (Cohen's κ); low agreement means the night's
+numbers are a range, not a value.
 
 | Engine | Stages | Setup | Accuracy grounding |
 | --- | --- | --- | --- |
@@ -124,6 +125,40 @@ stub scorer but should be **verified against the real tool on first use**
 — any mismatch surfaces as an engine note naming what was found, never as
 a failed session.
 
+### 3.4 Choosing an engine and re-analysing a night
+
+The ranking above is a default, not a lock-in. Every logged night keeps its
+raw ECG (and ACC) file, so it can be re-staged at any time — which matters
+most after installing the optional extras, since nights recorded before
+that are otherwise stuck on the heuristic forever.
+
+* **One night:** the *Sleep algorithm* card on the session page. Pick an
+  engine and press *Re-analyse this night*.
+* **A history:** the **Sleep** page (`/sleep`) lists every staged night.
+  Tick the ones you want, pick one algorithm, re-analyse them together.
+  They are queued and processed **one at a time** — the external engine
+  runs a separate deep network per night, so a long history is hours of
+  work, not minutes.
+
+Three things worth knowing:
+
+1. **Every available engine still runs.** The choice decides which one
+   fills the night's numbers and leads the report; the others stay in the
+   agreement table. Dropping them to save time would remove the only
+   signal that two algorithms disagree about the same night.
+2. **The choice sticks to the session** and is re-applied every time that
+   night is re-analysed, from anywhere.
+3. **Switching to a coarser engine blanks stage minutes, by design.**
+   SleepECG scores Wake/NREM/REM, so choosing it leaves *light* and *deep*
+   empty rather than inventing a split it cannot see — the same
+   vocabulary-honesty rule as §5. Switch back and they return.
+
+Engines that cannot run here are shown in the dropdown, greyed out, with
+the exact reason (a missing package, an unset environment variable). An
+unavailable engine is a fact to report, not an error — and if the chosen
+engine fails or disappears between choosing and running, the night is
+staged by the next-best engine and the report says so.
+
 ## 4. Accelerometer (optional second upload)
 
 Polar Sensor Logger can export the H10's accelerometer stream alongside the
@@ -176,4 +211,7 @@ the report is the readable version.
   heart-beat-based method.
 * Recording span stands in for time in bed; starting the strap long before
   lights-off inflates TIB and deflates efficiency.
+* Changing the engine changes the *estimate*, not the night. Two engines
+  disagreeing on the same recording is the κ≈0.6–0.7 ceiling in action, not
+  a bug — the agreement table is where to look before trusting a number.
 * Nothing here is a diagnosis or a substitute for polysomnography.
