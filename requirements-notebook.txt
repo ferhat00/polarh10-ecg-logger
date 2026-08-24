@@ -1,0 +1,3 @@
+# Extras needed to run notebooks/sleep_eda.ipynb as a Jupyter kernel.
+# The app and requirements-sleep.txt need nothing beyond this.
+ipykernel>=6.29

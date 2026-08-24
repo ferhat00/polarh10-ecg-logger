@@ -170,6 +170,25 @@ sleep-appropriate thresholds (nocturnal dipping is physiology, not a
 finding). The full literature grounding, per-engine setup, and limitations
 live in [`docs/SLEEP.md`](docs/SLEEP.md).
 
+### Exploring a night interactively
+
+The report answers "how did I sleep". To ask *why the stager decided that*,
+open [`notebooks/sleep_eda.ipynb`](notebooks/sleep_eda.ipynb): point it at a
+sleep-log CSV and it runs the same engines on the same 30 s epoch grid, then
+shows the per-epoch features they decide from (HR, RMSSD, LF/HF, movement,
+coverage), the hypnograms, per-stage physiology, engine-vs-engine confusion
+matrices, bout and cycle structure, and a plausibility check against adult
+normative ranges. It reuses the `.npz` written at processing time, so a
+re-run takes seconds rather than re-reading a ~100 MB waveform.
+
+```
+pip install -r requirements-sleep.txt -r requirements-notebook.txt
+jupyter lab notebooks/sleep_eda.ipynb
+```
+
+`scripts/sleep_eda_smoke.py <sleep-log.csv>` runs the same analysis headlessly
+if you would rather not install Jupyter.
+
 ## Adding an activity profile
 
 Activities change what is computed, what is suppressed, and how results are read,

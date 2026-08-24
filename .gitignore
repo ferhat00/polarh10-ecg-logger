@@ -156,6 +156,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+polarh10/
 
 # Spyder project settings
 .spyderproject
@@ -220,3 +221,7 @@ __marimo__/
 # App data (health data stays local, never committed)
 data/
 *.sqlite3
+
+# Notebook exports (derived health data stays local too)
+notebooks/output/
+*.csv
