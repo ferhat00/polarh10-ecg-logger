@@ -189,6 +189,18 @@
                 <span class="hint">{{ session.env_source }} · window-averaged</span>
               </td></tr>
           {% endif %}
+          {% if flow_night %}
+          <tr><th>Prior night</th>
+              <td class="num">
+                {% if flow_night.total_sleep_s is not none %}slept {{ flow_night.total_sleep_s // 3600 }} h {{ "%02d"|format((flow_night.total_sleep_s % 3600) // 60) }} m{% endif %}
+                {% if flow_night.sleep_score is not none %} · sleep score {{ flow_night.sleep_score }}{% endif %}
+                {% if flow_night.nightly_recharge_status is not none %} · recharge {{ recharge_status.get(flow_night.nightly_recharge_status, "—") }}{% endif %}
+                {% if flow_night.hrv_rmssd_ms is not none %} · overnight RMSSD {{ flow_night.hrv_rmssd_ms }} ms{% endif %}
+                {% if flow_night.hr_avg_bpm is not none %} · sleeping HR {{ flow_night.hr_avg_bpm }} bpm{% endif %}
+                <span class="hint">Polar Flow ({{ flow_night.date }}) — wrist PPG, not comparable
+                  with this session's ECG-derived RMSSD</span>
+              </td></tr>
+          {% endif %}
           <tr><th>Beats corrected</th><td class="num">{{ "%.2f%%"|format(session.beats_corrected_pct or 0) }}</td></tr>
           <tr><th>Engine</th><td class="num">{{ session.engine_used }}</td></tr>
           <tr><th>Unit / epoch detected</th><td class="num">{{ session.ecg_unit_detected }} / {{ session.epoch_detected }}</td></tr>

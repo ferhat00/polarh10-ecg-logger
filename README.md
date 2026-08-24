@@ -21,11 +21,21 @@ resolution returns quantisation artifacts, not physiology. Interval measurement 
 
 All health data stays local: SQLite on disk, uploaded CSVs on the local filesystem, no
 telemetry, no CDN assets. The app works fully offline (fonts and all frontend assets
-are vendored). The single, deliberate exception is **opt-in**: if you explicitly
-enable the weather lookup (`ECGLOG_WEATHER_ENABLED=1` plus a home latitude/longitude),
-the app fetches historical weather and air quality for each recording from
-Open-Meteo — date and coordinates are the only data sent, no health data ever leaves
-the machine, and with the flag unset (the default) no network call is ever made.
+are vendored). There are exactly two deliberate exceptions, both **opt-in**, both off
+unless you turn them on — and they differ in kind:
+
+- **Weather lookup** (`ECGLOG_WEATHER_ENABLED=1` plus a home latitude/longitude) sends
+  data *outward*: the app fetches historical weather and air quality for each recording
+  from Open-Meteo. A date and the configured coordinates are the only things sent; no
+  health data ever leaves the machine.
+- **Polar Flow sync** (`ECGLOG_POLAR_ENABLED=1` plus AccessLink client credentials)
+  pulls data *inward*: sleep and overnight-recovery figures your Polar account already
+  holds. It also stores a long-lived bearer token for that account in the local SQLite
+  file — AccessLink tokens do not expire unless revoked. Unlink from the person page,
+  and revoke at [account.polar.com](https://account.polar.com). See
+  [`docs/POLAR_FLOW.md`](docs/POLAR_FLOW.md).
+
+With both flags unset (the default) no network call is ever made.
 
 The literature review behind the ectopy-statistics feature — device validation,
 detection algorithms at 130 Hz, burden variability, trigger epidemiology, and the
@@ -46,7 +56,9 @@ Then open http://127.0.0.1:5000, add a person, and upload a recording. Configura
 is environment-based with local defaults (`ECGLOG_DATA_DIR`, `ECGLOG_DATABASE_URI`,
 `ECGLOG_SECRET_KEY`, `ECGLOG_MAX_UPLOAD_BYTES`; opt-in weather lookup:
 `ECGLOG_WEATHER_ENABLED`, `ECGLOG_HOME_LAT`, `ECGLOG_HOME_LON`,
-`ECGLOG_WEATHER_TIMEOUT_S`) — see `app/config.py`.
+`ECGLOG_WEATHER_TIMEOUT_S`; opt-in Polar Flow sync: `ECGLOG_POLAR_ENABLED`,
+`ECGLOG_POLAR_CLIENT_ID`, `ECGLOG_POLAR_CLIENT_SECRET`,
+`ECGLOG_POLAR_REDIRECT_URI`, `ECGLOG_POLAR_TIMEOUT_S`) — see `app/config.py`.
 
 Data layout (all under `data/`, which is gitignored):
 
@@ -140,6 +152,42 @@ The literature grounding for every factor — what is worth tagging, expected ef
 sizes, and what is deliberately excluded — is in
 [`docs/CONTEXT_METRICS.md`](docs/CONTEXT_METRICS.md).
 
+## Polar Flow sync (opt-in)
+
+Everything above measures what the H10 recorded during a session. Linking a **Polar
+Flow** account adds what your wrist device derived on the nights in between — including
+the great majority of nights with no ECG recording behind them.
+
+Register an API client at [admin.polaraccesslink.com](https://admin.polaraccesslink.com)
+with redirect URL `http://localhost:5000/polar/callback`, set `ECGLOG_POLAR_ENABLED=1`
+plus the client id and secret, then press **Link Polar Flow** on the person page. Sync
+from that page or from the CLI:
+
+```bash
+.venv/Scripts/python -m flask --app wsgi polar-sync
+```
+
+You get sleep stages and score, Nightly Recharge (status, ANS charge, breathing rate),
+overnight RMSSD, and 24/7 heart rate — surfaced as the prior night on each session
+page, as a separate figure on the trends page, and as a selectable outcome in the
+trigger statistics.
+
+Two things it deliberately does **not** do. It never touches AccessLink's *transaction*
+endpoints (`exercise-transactions`, `activity-transactions`), because committing one
+**deletes the data server-side** — the client refuses those paths outright. And nothing
+from Flow reaches the screening rules or fills the subjective sleep-quality field:
+Polar's scores are proprietary composites, and subjective–objective divergence is
+itself informative.
+
+Flow's overnight RMSSD is **not** the same measurement as a session's RMSSD — wrist
+PPG over four hours of sleep versus chest ECG over minutes — so the two are shown side
+by side and never merged into one series. Full grounding, setup, rate-limit behaviour,
+and the credential-at-rest discussion: [`docs/POLAR_FLOW.md`](docs/POLAR_FLOW.md).
+
+If you were hoping to log **raw** PPG/ACC off a Polar Loop Gen 2, §1 of that document
+explains why that needs a native Android/iOS app and costs you the Flow app on that
+band — the Loop bonds to exactly one peer.
+
 ## Sleep staging
 
 Record a whole night (start the strap at lights-off, stop it on getting up),
@@ -210,4 +258,6 @@ quality windowing, RR construction, Kubios artifact correction, beat-template
 morphology, HRV), `app/screening` (rule-based flags, every threshold cited in
 `screening/thresholds.py`), `app/activities` (profile registry), `app/report`
 (matplotlib figures + self-contained HTML), `app/comparison.py` (cross-session
-guardrails), `app/logbook` (append-only Markdown log), with Flask blueprints on top.
+guardrails), `app/logbook` (append-only Markdown log), plus the two opt-in outbound
+clients `app/environment` (Open-Meteo) and `app/polar` (AccessLink), with Flask
+blueprints on top.

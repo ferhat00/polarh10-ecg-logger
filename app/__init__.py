@@ -45,6 +45,13 @@ def create_app(config_object: object | None = None) -> Flask:
     app.register_blueprint(logbook_bp)
     app.register_blueprint(triggers_bp)
 
+    # Opt-in only: with ECGLOG_POLAR_ENABLED unset these URLs do not exist,
+    # so no code path can reach Polar by accident.
+    if app.config.get("POLAR_ENABLED"):
+        from app.blueprints.polar import bp as polar_bp
+
+        app.register_blueprint(polar_bp)
+
     from app.cli import register_cli
 
     register_cli(app)

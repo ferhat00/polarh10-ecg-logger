@@ -210,6 +210,12 @@ subjective-objective divergence is itself informative and the existing
 `poor-sleep` tag conflates the two. Sleep-regularity/social-jetlag metrics
 computable from staged nights are future work.
 
+The opt-in Polar Flow sync ([`POLAR_FLOW.md`](POLAR_FLOW.md)) adds a third
+source: the wrist device's own sleep score and Nightly Recharge for the night
+each session followed, available even for the nights with no ECG recording.
+It is displayed beside this field and **never fills it** — that would collapse
+exactly the divergence this separation exists to preserve.
+
 ### 2.12 Dehydration, posture-as-tag — *existing tags*
 
 Already in the vocabulary (RESEARCH.md §4.1). The `lying-down` tag is now

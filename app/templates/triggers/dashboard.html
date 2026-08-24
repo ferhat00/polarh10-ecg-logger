@@ -10,6 +10,13 @@
     {% elif outcome.key == "ln_rmssd" %}
       RMSSD (vagal HRV) compared between sessions with and without each
       trigger tag, modelled on the log scale and reported as a % change.
+    {% elif outcome.key == "flow_rmssd" %}
+      Overnight RMSSD from Polar Flow for the night each session followed,
+      compared between sessions with and without each trigger tag, modelled on
+      the log scale and reported as a % change. This is a wrist PPG measurement
+      averaged over roughly four hours of sleep — a different instrument from the
+      chest ECG the sessions themselves are made of, so an effect here is not
+      interchangeable with an effect on session RMSSD.
     {% else %}
       Resting heart rate (lowest sustained 60 s) compared between sessions
       with and without each trigger tag.
@@ -207,7 +214,8 @@
           sin/cos hour-of-day pair (ectopy has a circadian rhythm — so do most
           exposures) and, when the data supports it, the activity group.
           {% else %}
-          One linear model per tag on {{ "ln(RMSSD)" if outcome.key == "ln_rmssd" else "resting HR" }}
+          {% set scale = {"ln_rmssd": "ln(RMSSD)", "flow_rmssd": "ln(overnight RMSSD)"} %}
+          One linear model per tag on {{ scale.get(outcome.key, "resting HR") }}
           with robust (HC1) errors, a sin/cos hour-of-day pair (HRV and HR have
           circadian rhythms — so do most exposures) and, when the data supports
           it, the activity group.

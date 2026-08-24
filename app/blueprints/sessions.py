@@ -33,6 +33,7 @@ from app.models import (
     TriggerTag,
     slugify,
 )
+from app.polar import RECHARGE_STATUS, night_before
 from app.processing import report_path_for, submit_processing
 from app.sleep.engines.registry import engine_status, engine_statuses, vocab_summary
 from app.triggers.seed import ensure_builtin_trigger_tags
@@ -231,6 +232,12 @@ def detail(session_id: int) -> str:
         extras=extras or {},
         trigger_tags=_all_trigger_tags(),
         body_positions=BODY_POSITIONS,
+        # Objective sleep context from Polar Flow, when the person has linked
+        # an account and that night was synced. Never fills the subjective
+        # sleep-quality field: their divergence is itself informative
+        # (docs/CONTEXT_METRICS.md §2.11).
+        flow_night=night_before(session.person, session.recorded_at),
+        recharge_status=RECHARGE_STATUS,
         has_report=report_path_for(session).exists() if session.stored_path else False,
         sleep_engines=sleep_engines,
         auto_label=auto_label,
