@@ -1,8 +1,12 @@
 """Background session processing.
 
-Uploads never block the request: processing runs in a daemon thread (or
-inline when ``PROCESS_SYNC`` is set, as in tests) and the upload page polls a
-status endpoint. Results are persisted three ways:
+Uploads never block the request: processing is queued to a single daemon
+worker (or runs inline when ``PROCESS_SYNC`` is set, as in tests) and the
+upload page polls a status endpoint. One worker, not a thread per session:
+a night is a ~135 MB CSV, and with the external staging engine configured
+each session can occupy a subprocess for up to half an hour, so a bulk
+re-analysis of a whole sleep history must not run N of those at once.
+Results are persisted three ways:
 
 * DB rows — session provenance/quality columns, one metrics row, flags,
   excluded segments;
@@ -16,6 +20,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import queue
 import threading
 from pathlib import Path
 
@@ -24,7 +29,7 @@ from flask import Flask
 
 from app.activities.base import ActivityInputs, PersonContext, apply_suppressions
 from app.activities.metrics import lowest_sustained_hr
-from app.activities.registry import resolve_profile
+from app.activities.registry import requests_sleep_staging, resolve_profile
 from app.environment import format_environment_line
 from app.extensions import db
 from app.ingest.exceptions import AmbiguousFormatError, LoaderError
@@ -39,16 +44,67 @@ from app.report.render import ReportMeta, build_report_html
 from app.screening.rules import run_screening
 from app.sleep.orchestrator import SleepAnalysis, run_sleep_analysis
 
+#: Session ids waiting for the worker, plus the ids already queued (so a
+#: double-click, or a session picked in a batch it is already queued in,
+#: doesn't process twice). Guarded by _LOCK; the worker is started lazily on
+#: first use so importing this module starts no threads.
+_QUEUE: queue.Queue[int] = queue.Queue()
+_QUEUED: set[int] = set()
+_LOCK = threading.Lock()
+_WORKER: threading.Thread | None = None
+
 
 def submit_processing(app: Flask, session_id: int) -> None:
-    """Run processing inline (tests) or on a daemon thread (normal)."""
+    """Run processing inline (tests) or queue it for the worker (normal)."""
     if app.config.get("PROCESS_SYNC"):
         _process(app, session_id)
         return
-    thread = threading.Thread(
-        target=_process, args=(app, session_id), daemon=True, name=f"process-{session_id}"
+    with _LOCK:
+        _start_worker(app)
+        if session_id in _QUEUED:
+            return
+        _QUEUED.add(session_id)
+        _QUEUE.put(session_id)
+
+
+def queue_depth() -> int:
+    """Sessions waiting for or being processed by the worker."""
+    with _LOCK:
+        return len(_QUEUED)
+
+
+def _start_worker(app: Flask) -> None:
+    """Start the single worker thread once (caller holds _LOCK).
+
+    The app is captured on first use — this process serves exactly one app,
+    and restarting only ever happens if the loop somehow died.
+    """
+    global _WORKER
+    if _WORKER is not None and _WORKER.is_alive():
+        return
+    _WORKER = threading.Thread(
+        target=_worker_loop, args=(app,), daemon=True, name="process-worker"
     )
-    thread.start()
+    _WORKER.start()
+
+
+def _worker_loop(app: Flask) -> None:
+    """Drain the queue one session at a time, forever.
+
+    Daemon by design: a queued session left unprocessed at shutdown simply
+    stays PENDING and can be re-analysed again, which is a better failure
+    mode than blocking interpreter exit.
+    """
+    while True:
+        session_id = _QUEUE.get()
+        try:
+            _process(app, session_id)
+        except Exception:  # noqa: BLE001 - the worker must outlive one bad session
+            app.logger.exception("Processing worker failed on session %s", session_id)
+        finally:
+            with _LOCK:
+                _QUEUED.discard(session_id)
+            _QUEUE.task_done()
 
 
 def cache_path_for(session: Session) -> Path:
@@ -87,10 +143,7 @@ def _process(app: Flask, session_id: int) -> None:
             # the optional ACC file, and app config — none of which belong
             # in the profiles' ActivityInputs slice.
             sleep: SleepAnalysis | None = None
-            resolved_gate = (
-                resolve_profile(session.activity_type) if session.activity_type else None
-            )
-            if resolved_gate is not None and resolved_gate.profile.requests_sleep_staging:
+            if requests_sleep_staging(session.activity_type):
                 sleep = run_sleep_analysis(
                     rec,
                     result,
@@ -101,6 +154,7 @@ def _process(app: Flask, session_id: int) -> None:
                     acc=acc_loaded,
                     acc_error=acc_error,
                     acc_epochs=acc_counts,
+                    engine_pref=session.sleep_engine_pref,
                 )
 
             env_extras = _maybe_fetch_environment(app, session, rec)

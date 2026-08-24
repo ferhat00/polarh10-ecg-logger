@@ -254,6 +254,14 @@ class Session(db.Model):
     #: User answers from the format-mapping form (loader FormatOverrides),
     #: kept so reprocessing applies them again.
     format_overrides: Mapped[dict | None] = mapped_column(JSON, default=None)
+    #: Sleep-staging engine this session asked for, by engine key
+    #: ("heuristic" / "sleepecg" / "external-5class"). NULL means automatic:
+    #: run everything available and let the precedence order pick. Kept so
+    #: re-analysis from anywhere applies the choice again (the
+    #: format_overrides precedent above). Deliberately unconstrained — engine
+    #: keys are code identifiers, and a row naming an engine a later build
+    #: dropped must degrade to "automatic, with a note", not a DB error.
+    sleep_engine_pref: Mapped[str | None] = mapped_column(String(40), default=None)
     #: Which engine actually produced the analysis ("neurokit2" / "biosppy").
     engine_used: Mapped[str | None] = mapped_column(String(40), default=None)
 

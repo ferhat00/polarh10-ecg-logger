@@ -310,7 +310,9 @@ def _sleep_kpis(sleep: SleepAnalysis) -> list[tuple[str, str, str]]:
     summary = sleep.primary_summary()
     if summary is None:
         return []
-    engine_note = f"engine: {sleep.primary_engine}"
+    # Provenance travels with the number, not only in the footnote below.
+    chosen = " (your choice)" if sleep.engine_pref == sleep.primary_engine else " (automatic)"
+    engine_note = f"engine: {sleep.primary_engine}{chosen}"
 
     def minutes(v: float | None) -> str:
         if v is None:

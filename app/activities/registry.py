@@ -82,3 +82,15 @@ def resolve_profile(activity_type: Any) -> ResolvedActivity:
         comparison_key=getattr(activity_type, "comparison_key", None)
         or profile.comparison_key,
     )
+
+
+def requests_sleep_staging(activity_type: Any) -> bool:
+    """True when this activity's profile asks for sleep staging.
+
+    The gate for both processing and the sleep UI, so "is this a night?" is
+    answered the same way in both. ``None`` (a session with no activity type)
+    is not a sleep session.
+    """
+    if activity_type is None:
+        return False
+    return resolve_profile(activity_type).profile.requests_sleep_staging

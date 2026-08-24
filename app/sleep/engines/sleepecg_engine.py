@@ -45,6 +45,8 @@ from app.sleep.stages import (
 
 ENGINE_KEY = "sleepecg"
 ENGINE_LABEL = "SleepECG GRU (wrn-gru-mesa-weighted)"
+#: Declared for the UI before the engine runs (see heuristic.ENGINE_VOCAB).
+ENGINE_VOCAB = StageVocab.WAKE_REM_NREM
 
 CLASSIFIER_NAME = "wrn-gru-mesa-weighted"
 
@@ -143,7 +145,7 @@ def stage_sleepecg(
     return Hypnogram(
         engine=ENGINE_KEY,
         engine_label=ENGINE_LABEL,
-        vocab=StageVocab.WAKE_REM_NREM,
+        vocab=ENGINE_VOCAB,
         epoch_len_s=EPOCH_LEN_S,
         epoch_start_s=grid,
         stages=stages,
